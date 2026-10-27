@@ -94,6 +94,10 @@ dsh2 -V; dsh4 -V
 > 版本号以 npm 上的 `latest` 和 `next` 为准（`npm view @deepseek-ai/dsh dist-tags`）。如果 rc.2 或 rc.4 已经不是这两个渠道的版本，就用当时的 `latest` 和 `next`，并在结果里注明。
 > **下文用 `dsh4` 作为默认版本**，只有涉及版本切换的测试才用 `dsh2`。
 
+> ⚠️ **Linux 实测踩到的坑**：`dsh2` / `dsh4` 是 shell 函数（Windows 上是 PowerShell 函数）。**在后台启动 DSH 时不要用它们**，否则 `kill` 只会杀掉外层，里面的 Node 进程会变成孤儿一直运行。后台启动时直接写 `node <版本目录>/node_modules/@deepseek-ai/dsh/lib/bin.js …`，记下 Node 进程本身的 PID；测完用 `pgrep -af dsdock-m0`（Windows：`Get-CimInstance Win32_Process | ? CommandLine -match 'dsdock-m0'`）检查有没有残留。
+>
+> 另外：用 `dsh plugin --profile <任意名字>` 创建的 profile **只有 base，没有 web 服务**。需要 web 的测试（V7、V8、V10）请用名字叫 `web` 的 profile（`dsh4 plugin --profile web add …` 会按官方 web 模板创建），或者用 `--from-default-profile web`。启动 web profile 的命令是 `dsh4 --profile web --no-open --port <端口>`，**不要**在后面再加 `web`。
+
 记录：两个版本各自的安装耗时、目录大小（`du -sh` 或 PowerShell 的 `Get-ChildItem -Recurse | Measure-Object Length -Sum`）。
 
 ### 2.4 创建测试插件样本
@@ -188,7 +192,8 @@ export function apply() {
 1. `dsh2 -V` 和 `dsh4 -V` 分别输出正确的版本号；
 2. 读两个版本 `package.json` 里的 `engines`；
 3. 在两个版本的目录里搜索 `SESSION_FORMAT_VERSION` 的定义，找到具体数值。提示：在 `node_modules/@deepseek-ai/dsh-session/` 下面搜 `SESSION_FORMAT_VERSION =`；
-4. 记录：Node 和 pnpm 是怎么准备的（见 2.1）。如果用的是工作区里的便携 Node，确认 DSH 在它下面能正常运行。
+4. 记录：Node 和 pnpm 是怎么准备的（见 2.1）。如果用的是工作区里的便携 Node，确认 DSH 在它下面能正常运行；
+5. 空间对比（Linux 结论：npm 每个版本 856MB；pnpm 两个版本合计 548MB）：在 `$W/pv/<版本>/` 下各放一个 `{"private":true}` 的 package.json，执行 `pnpm add @deepseek-ai/dsh@<版本> --config.node-linker=hoisted`（pnpm 会因为构建脚本被拦截返回退出码 1，属于正常现象），然后分别 `du` 单个目录和整个 `pv/`。**Windows 上请特别看硬链接是否生效**。
 
 ---
 
@@ -208,15 +213,14 @@ export function apply() {
 1. `dsh4 --profile t1 --dump-config`：贴出完整输出（应该不长），特别注意**来源注释的具体格式**（文档里说会有一行类似 `# == fx-ok` 的标记）；
 2. 记录退出码和耗时；
 3. 加上冲突样本：`dsh4 plugin --profile t1 add "$W/fixtures/fx-conflict-a"`，再 add `fx-conflict-b`，然后再跑一次 `--dump-config`，看 `fx-same` 这一行怎么显示：有没有警告？能不能看出是谁覆盖了谁？
-4. 在 `$DSH_HOME/profiles/t1/cordis.patch.yml` 里写一个指向不存在 id 的覆盖：
+4. 把 `$DSH_HOME/profiles/t1/cordis.patch.yml` 的**全部内容替换**成下面这样（Linux 已确认：修改已有的行直接写 `- id:`，没有 `override` 关键字。注意文件默认内容是 `[]`，**不能在它后面直接追加列表项**，否则 YAML 无效，DSH 会启动失败）：
    ```yaml
-   - override:
-       - id: no-such-row
-         config: {}
+   - id: no-such-row
+     config: {}
+   - id: fx-ok
+     disabled: true
    ```
-   > 如果 `override` 这种写法不对，就从 `dsh4 --dump-config-schema` 输出里的 `$defs.patchList` 找正确语法，并把找到的语法记下来。
-
-   看 stderr 里的警告长什么样、退出码是多少；
+   看 stderr 里的警告长什么样、退出码是多少，以及 fx-ok 那一层的层标记有什么变化；
 5. 跑一次 `dsh4 --profile t1 --dump-config-schema`，记录输出大小，以及根节点 `x-cordis` 下面有哪些键；
 6. 测完把 `cordis.patch.yml` 恢复原样，并 remove 掉两个冲突样本。
 
@@ -247,10 +251,11 @@ export function apply() {
 
 ### V7 DSH 正在运行时，用 CLI 修改 profile
 
-1. 启动：`dsh4 --profile t1 web --no-open --port 38080`（放后台运行或者另开一个终端），记录**启动成功时打印的是什么**（V8 也要用）；
-2. DSH 运行期间，执行 `dsh4 plugin --profile t1 add "$W/fixtures/fx-conflict-a"`：命令是否成功？正在运行的 DSH 有什么反应（日志里有没有输出）？
-3. DSH 运行期间，执行 `dsh4 plugin --profile t1 remove @nagi-ovo/dsh-ads`：**Windows 上重点看会不会出现 `EBUSY`、`EPERM` 之类的文件占用错误**；
-4. DSH 运行期间，修改 `profiles/t1/cordis.patch.yml`（随便加一行注释），观察是否触发热重载；
+0. 准备：`dsh4 plugin --profile web add "$W/fixtures/fx-ok"`，再 `dsh4 plugin --profile web add @nagi-ovo/dsh-ads@0.1.2`（dsh-ads 需要 web 服务）。
+1. 启动：`dsh4 --profile web --no-open --port 38080`（按上面的提醒直接用 node 在后台启动，或者另开一个终端），等 stdout 出现 `dsh web: http://…` 这一行；
+2. DSH 运行期间，执行 `dsh4 plugin --profile web add "$W/fixtures/fx-conflict-a"`：命令是否成功？正在运行的 DSH 有什么反应（日志里有没有输出）？
+3. DSH 运行期间，执行 `dsh4 plugin --profile web remove @nagi-ovo/dsh-ads`：**Windows 上重点看会不会出现 `EBUSY`、`EPERM` 之类的文件占用错误**；
+4. DSH 运行期间，把 `profiles/web/cordis.patch.yml` 的内容替换成 `- id: fx-same` 加 `disabled: true`（**整体替换**，不要在 `[]` 后追加），再改回原样，看 stdout 有没有重新出现 `[fx-conflict-a] loaded`（Linux 上会出现，说明热重载有效）；
 5. 关掉 DSH，再启动一次，确认第 2、3 步的修改生效了；
 6. 测完关掉进程。
 
@@ -260,14 +265,17 @@ export function apply() {
 
 **目标**：为救援功能和二分定位找到一个自动化的"启动是否成功"判断方法。
 
-1. 正常情况：`dsh4 --profile t1 web --no-open --port 38081`，记录启动成功的标志（stdout 里打印的哪一行？端口能连上吗？HTTP 请求 `http://127.0.0.1:38081/` 返回什么状态码？），记录从启动到成功的耗时；
-2. 失败情况：新建 profile t2，add `fx-broken`，然后 `dsh4 --profile t2 web --no-open --port 38082`：
-   - 退出码是多少？从启动到退出用了多久？
+> Linux 的结论（请在你的平台上复核）：就绪信号是 **stdout** 上的 `dsh web: http://127.0.0.1:<端口>/?token=<令牌>`（**令牌必须脱敏**），约 3.5 秒；**插件加载失败时 DSH 不会退出**，而是在 stderr 打印 `dsh: warning: N entry did not activate`，后面每行是 `<id> (<包名>): <原因>`。
+
+1. 正常情况：`dsh4 --profile web --no-open --port 38081`，记录就绪信号出现的耗时，以及 `http://127.0.0.1:38081/` 返回的状态码；
+2. 失败情况：新建 profile t2，add `fx-broken`，然后 `dsh4 --profile t2`（t2 只有 base，没有就绪信号，等 20 秒）：
+   - 进程有没有退出？退出码是多少？
    - stderr 里写了什么？
    - `$DSH_HOME/logs/` 下面有没有生成 `startup-*.log`？日志里有没有指出是 `fx-broken`？（只摘录前 30 行，**注意脱敏**）
 3. 对 t2 跑 `--dump-config`：`fx-broken` 只在 apply 时才会抛错，所以配置组装**应该**能通过。确认这一点，它说明光靠 `--dump-config` 不足以完成冒烟测试；
 4. 试一下 headless profile 能不能当冒烟测试用：`dsh4 --profile t2 headless --help`。文档说 `--help` 不启动任何东西，所以它**很可能**没用，确认一下；
-5. 结论：推荐一种冒烟测试方法（比如"用 web 启动，等端口能连上或者进程退出，超时 N 秒"），并给出 N 的建议值。
+5. 重复 id：在 web profile 里同时装 fx-conflict-a 和 fx-conflict-b，启动后看 stdout 里哪个打印了 `loaded`（Linux 上只有 b，a 被静默丢掉）；
+6. 结论：推荐一种冒烟测试方法，并给出超时时间的建议值。
 
 ---
 
@@ -284,7 +292,7 @@ export function apply() {
 
 ### V10 不同版本的 DSH 同时使用同一个 `DSH_HOME`
 
-1. 新建 profile t3（add fx-ok），用 `dsh2` 启动 t3 web（端口 38083），同时用 `dsh4` 启动 t1 web（端口 38084）；
+1. 用 rc2 启动 `--profile web2 --from-default-profile web --no-open --port 38083`，同时用 rc4 启动 `--profile web --no-open --port 38084`。**记录 rc2 这次是不是它装好后的第一次启动，以及就绪耗时**（Linux 上第一次出现过 30 秒无输出，之后没能复现）；
 2. 两个实例能不能同时正常运行？
 3. 关掉两个实例后，看 `$DSH_HOME` 顶层有哪些共享文件（凭据、日志、索引之类），各自的修改时间；有没有出现锁文件或者报错；
 4. 用 `dsh2` 去跑原本由 `dsh4` 装好的 t1（`dsh2 --profile t1 --dump-config`）：能不能组装成功？内置组合包是不是从 rc2 的目录里解析的（看来源注释里的路径）？
@@ -354,7 +362,7 @@ export function apply() {
 
 | 平台 | 执行者 | 日期 | ✅ / ⚠️ / ❌ / ⏸ | 最重要的发现 | 结果文件 |
 |---|---|---|---|---|---|
-| Linux | — | — | 未开始 | — | `m0-results/linux.md` |
+| Linux | Claude Code | 2026-10-27 | 9 / 2 / 1 / 2 | ① 加载失败的插件不会让 DSH 退出，重复 id 时前一个插件被静默丢弃；② 快照方案成立：32KB、离线回滚约 380ms；③ 用 pnpm 装多个 DSH 版本只需三分之一空间 | `m0-results/linux.md` |
 | macOS | — | — | 未开始 | — | `m0-results/macos.md` |
 | Windows | — | — | 未开始 | — | `m0-results/windows.md` |
 
@@ -364,17 +372,17 @@ export function apply() {
 
 | 项 | Linux | macOS | Windows | 对设计的影响 |
 |---|---|---|---|---|
-| V1 DSH_HOME 隔离 | | | | |
-| V2 版本隔离、Node、pnpm | | | | |
-| V3 profile 结构 | | | | |
-| V4 --dump-config 格式 | | | | |
-| V5 快照和回滚 | | | | |
-| V6 更新语义 | | | | |
-| V7 运行中修改 | | | | |
-| V8 冒烟测试 | | | | |
-| V9 Host API | | | | |
-| V10 多版本共用 DSH_HOME | | | | |
-| V11 会话格式降级 | | | | |
-| V12 转发器和 PATH | | | | |
-| V13 官方桌面版 | | | | |
-| V14 git 安装放行构建 | | | | |
+| V1 DSH_HOME 隔离 | ✅ | | | |
+| V2 版本隔离、Node、pnpm | ✅ npm 856MB/版；pnpm 两版共 548MB | | | |
+| V3 profile 结构 | ✅ | | | |
+| V4 --dump-config 格式 | ✅ 重复 id 无警告 | | | |
+| V5 快照和回滚 | ✅ 380ms | | | |
+| V6 更新语义 | ✅ add 新版本即可 | | | |
+| V7 运行中修改 | ✅ 无占用；无效 YAML 被静默忽略 | | | |
+| V8 冒烟测试 | ⚠️ 失败不退出，要解析 stderr | | | |
+| V9 Host API | ❌ 无外部接口 | | | |
+| V10 多版本共用 DSH_HOME | ⚠️ 首次启动卡顿一次 | | | |
+| V11 会话格式降级 | ⏸ | | | |
+| V12 转发器和 PATH | ✅ 必须 exec | | | |
+| V13 官方桌面版 | ⏸ 不适用 | | | |
+| V14 git 安装放行构建 | ✅ | | | |

@@ -66,22 +66,30 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 |---|---|---|---|
 | K1 | DSH 以 npm 包 `@deepseek-ai/dsh` 发布，可执行文件是 `lib/bin.js`，要求 Node `>=24.9.0`；源码仓库用 pnpm 11 | npm、`apps/cli/package.json` | 【已核实】 |
 | K2 | 发布渠道：`latest`=0.2.1-rc.2，`next`=0.2.1-rc.4，`alpha`=0.2.1-alpha.5；共 38 个版本，10 月 9 日到 26 日发了 8 个 | npm dist-tags | 【已核实】 |
-| K3 | `DSH_HOME` 默认是 `~/.dsh`，启动失败的日志写在 `$DSH_HOME/logs/startup-*.log` | `apps/cli/reference/README.md` | 【已核实】默认值；能否用环境变量覆盖【待实测 V1】 |
-| K4 | profile 位于 `$DSH_HOME/profiles/<name>`，是一个 pnpm 项目：`package.json`（依赖，加上有序的 `dsh.profile.bundles`）、`cordis.patch.yml`（用户层）、pnpm 锁文件、`pnpm-workspace.yaml` | `docs/user/develop/basic/publish.md` | 【已核实】文件的完整清单【待实测 V3】 |
+| K3 | `DSH_HOME` 默认是 `~/.dsh`，可以用环境变量覆盖。**必需插件**启动失败时，日志写在 `$DSH_HOME/logs/startup-*.log` | `apps/cli/reference/README.md`、Linux V1 | 【已核实】 |
+| K4 | profile 位于 `$DSH_HOME/profiles/<name>`，是一个 pnpm 项目：`package.json`（依赖，加上有序的 `dsh.profile.bundles`）、`cordis.patch.yml`（用户层，默认内容是 `[]`）、`pnpm-lock.yaml`、`pnpm-workspace.yaml`（`nodeLinker: hoisted`）。另外还有启动时生成的 `cordis.yml`（空的根配置）和 `.plugin-manager/logs/`（每次操作的 pnpm 日志）。`DSH_HOME` 顶层有 `.credentials.yaml`（**凭据**）、`.anonymous-user-id`、`storages/` | publish.md、Linux V3 | 【已核实】 |
 | K5 | `dsh plugin --profile X <args>` 在 profile 目录里**原样转发 pnpm 命令**（add、remove、update、why…），要求 PATH 里有 pnpm。每次成功后，会根据实际安装结果重新整理 `dsh.profile.bundles` | CLI 参考文档 | 【已核实】 |
 | K6 | 配置叠加顺序：各组合包（按列表顺序）→ profile 的 `cordis.patch.yml` → `$DSH_HOME/cordis.patch.yml` → 命令行的 `--patch` | CLI 参考文档 | 【已核实】 |
 | K7 | 同一个 id 的行，后面的层**整行覆盖**前面的；`config` 是整块替换，不深度合并 | 同上 | 【已核实】 |
-| K8 | `--dump-config` 只组装配置、不启动，用注释标出每一行来自哪个文件、被哪些层改过；目标找不到时警告输出到 stderr。`--dump-config-schema` 输出 JSON Schema | 同上 | 【已核实】输出格式是否稳定【待实测 V4】 |
+| K8 | `--dump-config` 只组装配置、不启动（约 150ms）。每层开头是 `# == <包名>`，被改过的层是 `# == <包名>, patched by <文件>`；目标找不到时 stderr 输出 `dsh: [<文件>] patch: entry "<id>" not found`，**退出码仍为 0**。对**不存在**的自定义 profile 会直接报错，不会自动创建。`--dump-config-schema` 输出约 600KB 的 JSON Schema | CLI 参考文档、Linux V4 | 【已核实】 |
 | K9 | 内置组合包（`dsh-base`、`dsh-web-app` 等）**总是从当前运行的 dsh 安装里解析**，外部插件从 profile 的 `node_modules` 解析，所以 **profile 和 DSH 版本是分开的** | 同上 | 【已核实】 |
 | K10 | 插件兼容性先看 `engines.dsh`，没有才看 `@deepseek-ai/dsh*` 的 peer 依赖；安装和启动时都会检查 | `upgrade-guide/v0.2.1-alpha.3/plugin-engines-dsh` | 【已核实】 |
 | K11 | 用 CLI 增删组合包后，**正在运行的 profile 要重启才生效**；改 `cordis.patch.yml` 可以热重载 | CLI 参考文档 | 【已核实】 |
-| K12 | 运行中的 DSH 可以通过 Host API 或 `@deepseek-ai/dsh-api-remotes/client` 热安装（`installBundle` / `removeBundle`）。开着热重载时，重复安装同一个包会报 `already-installed`，**更新等于先删再装** | `upgrade-guide/v0.2.1-alpha.2/plugin-install-over-installed` | 【已核实】从外部怎么连接【待实测 V9】 |
+| K12 | DSH **内部**的插件管理器可以热安装（`installBundle` / `removeBundle`），开着热重载时重复安装会报 `already-installed`。远程客户端是给 DSH 自己的 Web 前端用的，经过 API Gateway、需要启动令牌，**没有面向外部程序的公开接口**。CLI 方式下直接 `add <包名>@<新版本>` 就能更新，顺序不变 | 升级指南、插件管理器 README、Linux V6/V9 | 【已核实】 |
 | K13 | 从 git 安装时，pnpm 10 以上会拦截 `prepare` 脚本，需要在 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds` 里手动放行 | publish.md | 【已核实】 |
 | K14 | `--from-default-profile` 用官方模板重置 profile，先在临时目录组装好再替换，失败时保留旧目录 | CLI 参考文档 | 【已核实】 |
-| K15 | 会话格式**只能往前迁移**（目前 v0 到 v4）。迁移会写一个新文件，**原文件保留**；遇到比自己新的格式会**直接报错** | 会话格式设计文档、`session-format-guard` 测试 | 【已核实】降级后的实际表现【待实测 V11】 |
+| K15 | 会话格式**只能往前迁移**（目前 v0 到 v4，0.2.1-rc.2 和 rc.4 都是 v4）。迁移会写一个新文件，**原文件保留**；遇到比自己新的格式会**直接报错** | 会话格式设计文档、`session-format-guard` 测试、Linux V2 | 【已核实】降级后的实际表现【待实测 V11】 |
 | K16 | 每个版本都有结构化的升级指南：`docs/upgrade-guide/<版本>/<变更>/guide.md` | 上游仓库 | 【已核实】 |
 | K17 | 官方插件索引格式 `format: 1`：一个 JSON 文件，列出插件的各个版本、来源（npm 或 git+commit）和 `engines.dsh` | `docs/user/guide/plugin-market.md` | 【已核实】 |
 | K18 | 官方桌面版内置了插件市场，有自己的安装契约（dshfind 的 `/market/v1/plugins` 就是为它服务的） | dshfind 代码 | 【已核实】它的 `DSH_HOME` 和状态文件【待实测 V13】 |
+| K19 | **两个组合包插入同一个 id 时，dump 不报警告，启动时前一个插件被静默丢弃** | Linux V4/V8 | 【已核实】 |
+| K20 | **插件加载失败不会让 DSH 退出**。stderr 打印 `dsh: warning: N entry did not activate`，后面每行是 `<id> (<包名>): <原因>`（异常加调用栈，或者 `pending (waiting for service: <服务>)`）。dump 发现不了这类错误 | Linux V8 | 【已核实】 |
+| K21 | web profile 的就绪信号：stdout 打印 `dsh web: http://127.0.0.1:<端口>/?token=<令牌>`（**带令牌，必须脱敏**），约 3.5 秒 | Linux V8 | 【已核实】 |
+| K22 | 用 `dsh plugin --profile <任意名字>` 创建的 profile 只有 `dsh-base`，没有 web 服务；只有官方模板名（`web` 等）或 `--from-default-profile` 才带 `dsh-web-app` | Linux V3/V8 | 【已核实】 |
+| K23 | `cordis.patch.yml` 的**无效修改**会被运行中的 DSH 静默忽略，但下次启动直接失败（YAML 解析错误）；有效修改会热重载 | Linux V7 | 【已核实】 |
+| K24 | npm 上发布的 `@deepseek-ai/dsh` **没有 `engines`**（源码仓库写的是 Node ≥ 24.9）；Node 18 下报看不懂的 import 错误 | Linux V2 | 【已核实】 |
+| K25 | 每个 DSH 版本用 npm 安装占 856MB；用 pnpm（全局缓存 + 硬链接）安装，两个版本合计 548MB。两种方式都会拦截 DSH 自己的构建脚本（`dsh-subprocess-local`、`node-pty`、`koffi` 等），pnpm 因此返回退出码 1，但文件已经装好、可以启动 | Linux V2 | 【已核实】拦截对 agent 执行命令的影响【待实测】 |
+| K26 | git 插件的放行 key 格式是 `<包名>@<规格>#<40 位 commit>`，和 commit 绑定；pnpm 打印的 key 会被终端换行截断；安装失败时 profile 不变 | Linux V14 | 【已核实】 |
 
 ---
 
@@ -113,18 +121,25 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 | PF07 | 仓库已归档，或超过 180 天没发版 | 提示 |
 | PF08 | `engines.node` 和本机（或托管的）Node 版本 | 不兼容就拒绝 |
 | PF09 | 来源可信度：npm 包是否回链到 GitHub 仓库（复用 dshfind 的 verified 结论） | 提示 |
+| PF10 | 新包插入的 id 和 profile 里已有的行重复（K19：DSH 会静默丢弃前一个插件） | 警告，说明哪个插件会失效 |
+| PF11 | 插件依赖 web 服务（比如 patch 里的行需要 `webServer`），但目标 profile 没有 `dsh-web-app`（K22） | 警告 |
 
-执行后验证：`--dump-config` 退出码为 0，并且输出里出现了新包的那一层。
+执行后验证分两级：
+
+- **第一级（每次都做，约 150ms）**：`--dump-config` 退出码为 0；出现了新包的那一层；stderr 里没有新增的 `patch: entry "…" not found`。
+- **第二级（可选，默认对"救援"和"批量更新"开启）**：用临时端口启动 profile。web profile 等就绪信号（K21），其它 profile 等到一段时间没有新输出；解析 stderr 里的 `did not activate` 列表（K20）。超时 20 秒，结束时杀掉整个进程组。新出现的未激活插件视为失败。
 
 ### F3 卸载（P0）
 
 快照 → `dsh plugin --profile X remove <pkg>` → 验证。卸载前额外检查：用户的 `cordis.patch.yml` 里是否还有指向这个插件的行（K7）。有的话提示用户，避免留下"找不到目标"的警告。
 
+**禁用而不卸载（P0）**：在用户层写 `disabled: true`，语义照搬官方插件管理器：只改最后一条匹配的覆盖；没有就追加一条；只剩 `id` 和 `disabled` 并且和默认状态一致的覆盖直接删掉。写入时必须正确处理默认的 `[]`（K23），写入前用 `--patch` 加 dump 先验证一遍。
+
 ### F4 快照与回滚（P0）
 
 - **什么时候拍**：每次安装、卸载、更新之前；切换 DSH 版本之前；救援之前；用户手动拍。
-- **拍什么**：profile 的 `package.json`、pnpm 锁文件、`pnpm-workspace.yaml`、`cordis.patch.yml`，以及 `$DSH_HOME/cordis.patch.yml`。另外记录当时的 DSH 版本和锁定信息。**不拷 `node_modules`**。
-- **回滚**：原子地写回文件 → `dsh plugin --profile X install --frozen-lockfile`（优先加 `--offline`，复用 pnpm 的本地缓存）→ `--dump-config` 验证。【可行性待实测 V5】
+- **拍什么**：profile 的 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`、`cordis.patch.yml`，以及 `$DSH_HOME/cordis.patch.yml`。另外记录当时的 DSH 版本和锁定信息。**不拷** `node_modules`、`cordis.yml`、`.plugin-manager/`；**绝对不碰** `$DSH_HOME/.credentials.yaml`。实测一个快照约 32KB。
+- **回滚**：原子地写回文件 → `dsh plugin --profile X install --frozen-lockfile --offline`（失败再去掉 `--offline`）→ `--dump-config` 验证。Linux 实测约 380ms，回滚后 dump 逐字节一致；即使删掉了整个 `node_modules` 也一样（V5）。
 - **时间线界面**：每个快照显示时间、原因、DSH 版本、是否验证通过，以及和现在的差异（多了、少了、版本变了的包）。
 - **P1**：可选把"最后一次验证通过"时的插件包文件存一份，防止作者从 npm 撤回版本后无法回滚。
 - **清理策略**：每个 profile 默认保留最近 50 个快照，加上所有手动快照，加上每天最后一个验证通过的快照，保留 30 天。
@@ -132,26 +147,29 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 ### F5 更新（P0）
 
 - 检查每个组合包有没有新版本，**只推荐兼容当前 DSH 的版本**；预发布版本需要单独打开开关。
-- 单个更新：快照 → 先删再装（K12），或者走 pnpm 的 `update`（看 V6 的实测结果）→ 验证。
+- 单个更新：快照 → `dsh plugin --profile X add <包名>@<新版本>` → 验证。CLI 方式下这样就能直接覆盖，组合包顺序不变（V6）。**不要先删再装**，那样会把它移到列表末尾，改变叠加顺序。
 - 批量更新时**逐个处理**：某一个失败只回滚那一个，最后出一份报告。
 - 显示更新说明（GitHub Release，或仓库里的 CHANGELOG）。
 
 ### F6 救援模式（P0，主打功能）
 
-1. **诊断**：跑 `--dump-config`，再读最新的 `$DSH_HOME/logs/startup-*.log`，把"哪个插件、哪一层、什么错误"翻译成人话。
+1. **诊断**：按顺序检查三类问题，把"哪个插件、哪一层、什么错误"翻译成人话：
+   - 配置文件解析失败（K23，最常见的是手改 `cordis.patch.yml` 写坏了 YAML）：直接指出文件和行号，提供"回到上次正常的用户层"；
+   - `--dump-config` 失败或有 `not found` 警告；
+   - 第二级冒烟测试里出现的 `did not activate` 列表（K20），以及 `$DSH_HOME/logs/startup-*.log`（只有必需插件失败时才有）。
 2. **一键回到上次正常的状态**：找到最近一个验证通过的快照，回滚。
 3. **二分定位**（P1）：复制一个临时 profile（`.dsdock-bisect-<id>`），每轮去掉一半插件后做冒烟测试，几轮就能找到是哪个插件出的问题。**用户原来的 profile 全程不动。**冒烟测试的具体做法【待实测 V8】。
 4. **最后手段**：先给整个 profile 拍快照，再用 `--from-default-profile` 重置（K14）。
 
 ### F7 冲突与覆盖分析（P1，差异化卖点）
 
-- **插件之间的冲突**：两个组合包往同一个 id 插入了行；或者后装的包整行覆盖了前面某个插件的行（官方 base 层的正常覆盖不算）。
+- **插件之间的冲突**：两个组合包往同一个 id 插入了行（K19，实测会静默丢掉前一个插件，**这部分提前到 P0**，作为 PF10 和总览里的红色提示）；或者后装的包整行覆盖了前面某个插件的行（官方 base 层的正常覆盖不算）。
 - **过时的覆盖**：用户在 `cordis.patch.yml` 里整块覆盖了某个插件的 `config`。插件更新后配置结构变了（用 `--dump-config-schema` 对比更新前后），新增的字段就丢了。提示用户检查。
 - **层叠视图**：每一行配置最终来自哪一层，被哪几层改过（直接用 K8 输出里的来源注释）。
 
 ### F8 整合包 Dockfile（P1）
 
-- 导出：一个 profile 的组合包（顺序、精确版本、来源）、建议的 DSH 版本，用户层 patch 可选（带上时自动脱敏）。
+- 导出：一个 profile 的组合包（顺序、精确版本、来源）、建议的 DSH 版本，用户层 patch 可选（带上时自动脱敏）。**永远不包含** `$DSH_HOME/.credentials.yaml` 和 `.env`。
 - 导入：新建一个 profile，逐个走 F2 的流程，结束后出一份报告。
 - 分享：dshfind 托管 Dockfile，用深链 `dsdock://import?url=<https-url>` 一键导入。
 
@@ -186,7 +204,7 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 | 子功能 | 优先级 | 说明 |
 |---|---|---|
 | 版本列表 | P0 | 已安装的版本（渠道、安装时间、占用空间、哪些 profile 在用）；可安装的版本（按稳定、测试、尝鲜分组，标出推荐版本） |
-| 安装、卸载 | P0 | 每个版本装在独立目录里；有 profile 锁定在某个版本时，不允许卸载它 |
+| 安装、卸载 | P0 | 每个版本装在独立目录里，**用 pnpm 安装**以共享文件（K25：两个版本 548MB，npm 要 1.7GB）；放行 DSH 官方的构建脚本清单；装好后在临时 profile 里做一次预热启动（V10 出现过首次启动卡顿）。有 profile 锁定在某个版本时，不允许卸载它 |
 | 全局切换 | P0 | 把默认的 `dsh` 指向另一个版本（通过转发器，见 §4.6） |
 | 接管现有安装 | P0 | 检测到 `npm i -g` 装过的 DSH，登记为"外部版本"，可以直接选用，不删除、不移动 |
 | 切换前预检 | P1 | 插件兼容性（K10）、降级时的会话格式警告（K15）、两个版本之间的升级指南（K16）、对受影响的 profile 逐个跑 `--dump-config` |
@@ -270,9 +288,10 @@ dsdock/
 Begin(profile, op, reason)
  1. 拿 profile 的文件锁（<数据目录>/locks/<home哈希>-<profile>.lock）
  2. dshenv.Running(profile)
-      ├─ 没在运行 → 用 executor.cli
-      └─ 正在运行 → 能连上 Host API 就用 executor.live；否则提示"需要重启 profile"
-         （Windows 上可能必须先停掉 DSH，取决于 V7 的实测结果）
+      ├─ 没在运行 → 直接执行
+      └─ 正在运行 → Linux / macOS：照常执行，结束后提示"重启 profile 才会生效"（K11，V7）
+                   Windows：取决于 V7 的实测结果，可能必须先停掉 DSH
+         （没有外部热安装接口，见 K12；executor.live 推迟到官方开放接口之后）
  3. preflight.Run(op)        → 有拒绝级别的问题就终止；有警告就请用户确认
  4. snapshot.Take()          → snapID
  5. executor.Run(op)         → 实时输出日志，并写入 ops 表
@@ -314,7 +333,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 **目录布局：**
 
 ```
-<数据目录>/versions/<版本号>/          # npm install @deepseek-ai/dsh@<版本号> --prefix 到这里
+<数据目录>/versions/<版本号>/          # 用 pnpm add @deepseek-ai/dsh@<版本号>（node-linker=hoisted）装到这里，共享 pnpm 全局缓存
 <数据目录>/runtimes/node-<版本号>/      # P2：托管的 Node
 <数据目录>/bin/dsh                    # Mac：指向 dsdock 二进制的硬链接或复制品
 <数据目录>/bin/dsh.exe                # Windows：同上。用 .exe 而不用 .cmd，避免 Ctrl+C 时弹出"终止批处理操作吗"
@@ -328,7 +347,13 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 4. 外部安装（`npm i -g` 装的那个）；
 5. 都没有 → 提示用 `dsdock dsh install` 安装。
 
-**执行：** `<node> <版本目录>/node_modules/@deepseek-ai/dsh/lib/bin.js <原样转发的参数>`。stdin、stdout、stderr 直接继承，信号原样传递（Windows 上处理 Ctrl+C 事件），退出码原样返回。转发器自己**不输出任何内容**，以免影响脚本解析 dsh 的输出。
+**执行：** `<node> <版本目录>/node_modules/@deepseek-ai/dsh/lib/bin.js <原样转发的参数>`。转发器自己**不输出任何内容**，以免影响脚本解析 dsh 的输出。
+
+- Unix：用 `syscall.Exec` **替换自身**，进程号不变，信号天然正确（V12：SIGINT 后 256ms 干净退出）。**不能**用"启动子进程再等待"的方式，Linux 实测这样会留下孤儿 Node 进程；
+- Windows：没有 exec，只能启动子进程，然后转发 Ctrl+C 事件、等待并返回退出码，用 Job Object 保证转发器退出时子进程一起结束；
+- DSDock 自己启动 DSH 时（托盘、冒烟测试），放进新的进程组（Windows 上是 Job Object），停止时对整个进程组发信号。
+
+**Node 版本**：发布的包没有 `engines`（K24），所以版本要求从对应 tag 的源码 `apps/cli/package.json` 读取并缓存。运行前由转发器检查，不满足时给出友好提示（而不是 Node 18 那种看不懂的 import 错误）。
 
 **PATH：** 安装时把 `<数据目录>/bin` 加到最前面。Mac 写 `~/.zprofile` 或 `~/.zshrc`（选择哪个看 V12 的实测结果）；Windows 写 `HKCU\Environment\Path`，然后广播 `WM_SETTINGCHANGE`。卸载时还原。
 
@@ -345,7 +370,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 - 方法（初步）：
   - `semver.satisfies(version, range, {includePrerelease})`
   - `dsh.meta(versionDir)` → 会话格式版本、内置组合包列表
-  - `live.connect(profile)`、`live.installBundle(spec)`、`live.removeBundle(name)`（取决于 V9 的实测结果）
+  - ~~`live.*` 热安装~~：V9 确认没有外部接口，推迟
 - 安全：bridge 只从 DSH 版本目录里加载模块，不加载 profile 里的插件代码。
 
 ### 4.8 发现正在运行的 DSH
@@ -473,7 +498,7 @@ DSDock **不上报任何遥测**。下载量统计只在 dshfind 的服务端看
 | **M0 · 验证假设** | 1 周 | 按 [m0-handoff.md](./m0-handoff.md) 在 Linux、Mac、Windows 上逐项实测；搭好仓库骨架和三平台 CI | 每个【待实测】项都有结论；设计文档相应更新 |
 | **M1 · CLI 核心** | 3 周 | dshenv、profile、snapshot、txn、preflight、executor(cli)；`status/check/add/remove/update/snap`；版本目录和转发器；`dsh list/install/use/adopt` | 自己日常用 DSDock；故意装坏插件后能自动回滚 |
 | **M2 · 救援 + GUI** | 3 周 | F6 的诊断和回到上次正常；Wails 托盘和主窗口（总览、Profile、版本、操作记录）；dshfind 数据源；切换版本前预检、一键回退 | 发布已签名的 Mac dmg |
-| **M3 · 热安装 + Windows** | 2 周 | bridge、executor(live)；按 profile 锁定版本；会话格式降级警告；Windows 打包、签名、PATH 处理 | 发布 Windows 安装包；DSH 运行中也能装插件 |
+| **M3 · Windows + 多版本** | 2 周 | 托盘里一键重启 profile；按 profile 锁定版本；会话格式降级警告；Windows 打包、签名、PATH、Job Object | 发布 Windows 安装包 |
 | **M4 · 分发** | 2 周 | 自动更新；安装脚本和镜像；dshfind 按钮和深链；Dockfile 导入导出 | 新用户从 dshfind 点一下就能装 |
 | **M5 · 差异化** | 持续 | 冲突分析；二分定位；升级指南影响分析；托管 Node 和 pnpm；多机同步；TUI | — |
 
@@ -495,3 +520,5 @@ DSDock **不上报任何遥测**。下载量统计只在 dshfind 的服务端看
 ## 12. 待确认项
 
 全部列在 [m0-handoff.md](./m0-handoff.md) 的 V1 到 V14 中，结果写入 `docs/m0-results/<平台>.md`，然后回来更新本文 §2 的"状态"一列。
+
+进度（2026-10-27）：Linux 已完成，见 [m0-results/linux.md](./m0-results/linux.md)；K19 到 K26 是 Linux 实测新增的事实。macOS 和 Windows 待执行。
