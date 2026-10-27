@@ -87,8 +87,10 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 | K21 | web profile 的就绪信号：stdout 打印 `dsh web: http://127.0.0.1:<端口>/?token=<令牌>`（**带令牌，必须脱敏**），约 3.5 秒 | Linux V8 | 【已核实】 |
 | K22 | 用 `dsh plugin --profile <任意名字>` 创建的 profile 只有 `dsh-base`，没有 web 服务；只有官方模板名（`web` 等）或 `--from-default-profile` 才带 `dsh-web-app` | Linux V3/V8 | 【已核实】 |
 | K23 | `cordis.patch.yml` 的**无效修改**会被运行中的 DSH 静默忽略，但下次启动直接失败（YAML 解析错误）；有效修改会热重载 | Linux V7 | 【已核实】 |
-| K24 | npm 上发布的 `@deepseek-ai/dsh` **没有 `engines`**（源码仓库写的是 Node ≥ 24.9）；Node 18 下报看不懂的 import 错误 | Linux V2 | 【已核实】 |
-| K25 | 每个 DSH 版本用 npm 安装占 856MB；用 pnpm（全局缓存 + 硬链接）安装，两个版本合计 548MB。两种方式都会拦截 DSH 自己的构建脚本（`dsh-subprocess-local`、`node-pty`、`koffi` 等），pnpm 因此返回退出码 1，但文件已经装好、可以启动 | Linux V2 | 【已核实】拦截对 agent 执行命令的影响【待实测】 |
+| K24 | npm 上发布的 `@deepseek-ai/dsh` **没有 `engines`**。已发布版本的 tag（`dsh-v<版本>`）根目录 `package.json` 声明 `^22.19.0 \|\| >=24.0.0`（rc.2、rc.3、alpha.1 都是）；上游 HEAD 的 `apps/cli/package.json` 才是 `>=24.9.0`，**不能代表已发布版本**。Node 18 下报看不懂的 import 错误 | Linux V2、第二波 | 【已核实】 |
+| K25 | 每个 DSH 版本用 npm 安装占 856MB；用 pnpm（全局缓存 + 硬链接）安装，两个版本合计 548MB。DSH 依赖的安装脚本里**只有 `dsh-subprocess-local` 需要运行**（给 node-pty 预编译的 macOS `spawn-helper` 加执行权限）；`node-pty` 自带六个平台的预编译二进制，`koffi` 的二进制通过可选依赖 `@koromix/koffi-<平台>` 提供，它们的脚本都可以跳过。DSDock 用 `allowBuilds` 明确放行和拒绝，加上 `strictDepBuilds: false`，安装退出码为 0 | Linux V2、第二波 | 【已核实】 |
+| K27 | DSH 遇到不兼容的组合包时**跳过它**，stderr 打印 `dsh: skipping profile bundle "<包名>": <原因>`，**退出码仍为 0**。用户可以用 `dsh plugin allow-version` 给某个插件版本授予豁免 | 第二波实测、`dsh-app-boot` 源码 | 【已核实】 |
+| K28 | 上游 tag 名是 `dsh-v<版本>`，新版本可能还没打 tag（rc.4 发布时最新 tag 是 rc.3） | GitHub | 【已核实】 |
 | K26 | git 插件的放行 key 格式是 `<包名>@<规格>#<40 位 commit>`，和 commit 绑定；pnpm 打印的 key 会被终端换行截断；安装失败时 profile 不变 | Linux V14 | 【已核实】 |
 
 ---
@@ -339,6 +341,8 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 <数据目录>/bin/dsh.exe                # Windows：同上。用 .exe 而不用 .cmd，避免 Ctrl+C 时弹出"终止批处理操作吗"
 ```
 
+**转发器的实现（第二波已完成）：** Unix 上是一个两行的 shell 脚本 `exec '<dsdock 路径>' __shim "$@"`，这样升级 dsdock 后转发器不会过时，而且每一步都是 exec，进程号不变（实测 SIGINT 能直接送到 DSH）。Windows 上是 `dsdock.exe` 的副本 `dsh.exe`，按调用时的名字进入转发模式。`dsdock dsh shim` 负责写入，只打印 PATH 的设置方法，不修改用户的 shell 配置。
+
 **转发器决定用哪个版本的顺序：**
 
 1. 环境变量 `DSDOCK_DSH_VERSION`（临时指定）；
@@ -496,7 +500,7 @@ DSDock **不上报任何遥测**。下载量统计只在 dshfind 的服务端看
 | 阶段 | 时间 | 内容 | 完成标准 |
 |---|---|---|---|
 | **M0 · 验证假设** | 1 周 | 按 [m0-handoff.md](./m0-handoff.md) 在 Linux、Mac、Windows 上逐项实测；搭好仓库骨架和三平台 CI | 每个【待实测】项都有结论；设计文档相应更新 |
-| **M1 · CLI 核心**（第一波已完成：status/check/add/remove/update/disable/enable/snap/smoke/log；第二波：版本管理和转发器） | 3 周 | dshenv、profile、snapshot、txn、preflight、executor(cli)；`status/check/add/remove/update/snap`；版本目录和转发器；`dsh list/install/use/adopt` | 自己日常用 DSDock；故意装坏插件后能自动回滚 |
+| **M1 · CLI 核心**（已完成。第一波：status/check/add/remove/update/disable/enable/snap/smoke/log；第二波：dsh list/install/use/pin/unpin/which/adopt/uninstall/shim、转发器、PF06/PF07） | 3 周 | dshenv、profile、snapshot、txn、preflight、executor(cli)；`status/check/add/remove/update/snap`；版本目录和转发器；`dsh list/install/use/adopt` | 自己日常用 DSDock；故意装坏插件后能自动回滚 |
 | **M2 · 救援 + GUI** | 3 周 | F6 的诊断和回到上次正常；Wails 托盘和主窗口（总览、Profile、版本、操作记录）；dshfind 数据源；切换版本前预检、一键回退 | 发布已签名的 Mac dmg |
 | **M3 · Windows + 多版本** | 2 周 | 托盘里一键重启 profile；按 profile 锁定版本；会话格式降级警告；Windows 打包、签名、PATH、Job Object | 发布 Windows 安装包 |
 | **M4 · 分发** | 2 周 | 自动更新；安装脚本和镜像；dshfind 按钮和深链；Dockfile 导入导出 | 新用户从 dshfind 点一下就能装 |

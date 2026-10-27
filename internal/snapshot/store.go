@@ -96,6 +96,10 @@ func Open(dir string) (*Store, error) {
 	return &Store{dir: dir, db: db}, nil
 }
 
+// DB exposes the database to other DSDock subsystems that keep their own
+// tables in it (versions, pins, settings).
+func (s *Store) DB() *sql.DB { return s.db }
+
 // Close releases the database.
 func (s *Store) Close() error { return s.db.Close() }
 

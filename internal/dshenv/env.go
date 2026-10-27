@@ -19,17 +19,60 @@ import (
 	"github.com/Masterminds/semver/v3"
 )
 
-// MinNode is the Node version dsh's source declares (apps/cli/package.json).
-// The published package does not carry `engines`, so DSDock checks it itself.
-const MinNode = "24.9.0"
+// DefaultNodeRange is what every tagged 0.2.x release declares in its root
+// package.json. The published package carries no `engines`, so DSDock reads
+// the range per version when it can and falls back to this one. It is wide
+// on purpose: it must catch Node 18 (which fails inside dsh with an import
+// error nobody can act on) without warning Node 22 users who are fine.
+const DefaultNodeRange = "^22.19.0 || >=24.0.0"
 
 // Env is one dsh installation plus the DSH_HOME it works on.
 type Env struct {
 	Home  string `json:"home"`
 	Entry string `json:"entry"` // bin.js, or an executable such as an npm shim
 	Node  string `json:"node,omitempty"`
+	// NodeRange is the Node versions this dsh supports; empty means
+	// DefaultNodeRange.
+	NodeRange string `json:"nodeRange,omitempty"`
 
 	version string
+}
+
+// Home is DSH_HOME, or ~/.dsh.
+func Home() (string, error) {
+	if h := os.Getenv("DSH_HOME"); h != "" {
+		return h, nil
+	}
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(h, ".dsh"), nil
+}
+
+// ForEntry builds an Env for a known dsh entry point.
+func ForEntry(home, entry, nodeRange string) (*Env, error) {
+	e := &Env{Home: home, Entry: entry, NodeRange: nodeRange}
+	if e.isScript() {
+		node, err := NodeBinary()
+		if err != nil {
+			return nil, err
+		}
+		e.Node = node
+	}
+	return e, nil
+}
+
+// NodeBinary is DSDOCK_NODE, or node on PATH.
+func NodeBinary() (string, error) {
+	if n := os.Getenv("DSDOCK_NODE"); n != "" {
+		return n, nil
+	}
+	p, err := exec.LookPath("node")
+	if err != nil {
+		return "", errors.New("找不到 node：请安装 Node.js，或者用 DSDOCK_NODE 指定")
+	}
+	return p, nil
 }
 
 // Discover reads the environment:
@@ -38,18 +81,13 @@ type Env struct {
 //	DSDOCK_DSH    path to dsh's lib/bin.js or to a dsh executable
 //	DSDOCK_NODE   node to run bin.js with (default: node on PATH)
 //
-// Without DSDOCK_DSH, the dsh on PATH is used.
-func Discover() (*Env, error) {
-	home := os.Getenv("DSH_HOME")
-	if home == "" {
-		h, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		home = filepath.Join(h, ".dsh")
+// Without DSDOCK_DSH, the dsh on PATH is used, except one inside skipDir
+// (DSDock's own forwarding shim, which would only send us back here).
+func Discover(skipDir string) (*Env, error) {
+	home, err := Home()
+	if err != nil {
+		return nil, err
 	}
-	e := &Env{Home: home}
-
 	if p := os.Getenv("DSDOCK_DSH"); p != "" {
 		abs, err := filepath.Abs(p)
 		if err != nil {
@@ -58,27 +96,29 @@ func Discover() (*Env, error) {
 		if _, err := os.Stat(abs); err != nil {
 			return nil, fmt.Errorf("DSDOCK_DSH: %w", err)
 		}
-		e.Entry = abs
-	} else {
-		p, err := exec.LookPath("dsh")
-		if err != nil {
-			return nil, errors.New("dsh not found: install DeepSeek Harness or set DSDOCK_DSH to its lib/bin.js")
-		}
-		e.Entry = p
+		return ForEntry(home, abs, "")
 	}
+	p, err := lookPathSkipping("dsh", skipDir)
+	if err != nil {
+		return nil, errors.New("找不到 dsh：运行 dsdock dsh install latest 安装一个版本，或者 dsdock dsh adopt 接管已有的安装，也可以用 DSDOCK_DSH 指定 lib/bin.js")
+	}
+	return ForEntry(home, p, "")
+}
 
-	if e.isScript() {
-		node := os.Getenv("DSDOCK_NODE")
-		if node == "" {
-			p, err := exec.LookPath("node")
-			if err != nil {
-				return nil, errors.New("node not found: set DSDOCK_NODE")
-			}
-			node = p
-		}
-		e.Node = node
+func lookPathSkipping(name, skipDir string) (string, error) {
+	if skipDir == "" {
+		return exec.LookPath(name)
 	}
-	return e, nil
+	skip, _ := filepath.Abs(skipDir)
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if abs, _ := filepath.Abs(dir); abs == skip {
+			continue
+		}
+		if p, err := exec.LookPath(filepath.Join(dir, name)); err == nil {
+			return p, nil
+		}
+	}
+	return "", exec.ErrNotFound
 }
 
 func (e *Env) isScript() bool {
@@ -185,8 +225,8 @@ func (e *Env) Version(ctx context.Context) (string, error) {
 	return e.version, nil
 }
 
-// CheckNode returns a readable problem when the node dsh runs on is too old.
-// Old Node fails inside dsh with an import error nobody can act on.
+// CheckNode returns a readable problem when the node dsh runs on is outside
+// the supported range.
 func (e *Env) CheckNode(ctx context.Context) (string, error) {
 	node := e.Node
 	if node == "" {
@@ -200,16 +240,25 @@ func (e *Env) CheckNode(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s -v: %w", node, err)
 	}
-	return nodeProblem(strings.TrimSpace(string(out)))
+	return NodeProblem(strings.TrimSpace(string(out)), e.NodeRange)
 }
 
-func nodeProblem(v string) (string, error) {
+// NodeProblem checks a `node -v` string against a range (empty means
+// DefaultNodeRange) and describes a mismatch.
+func NodeProblem(v, rng string) (string, error) {
+	if rng == "" {
+		rng = DefaultNodeRange
+	}
 	have, err := semver.NewVersion(strings.TrimPrefix(v, "v"))
 	if err != nil {
 		return "", fmt.Errorf("node version %q: %w", v, err)
 	}
-	if have.LessThan(semver.MustParse(MinNode)) {
-		return fmt.Sprintf("dsh needs Node >= %s, found %s", MinNode, v), nil
+	c, err := semver.NewConstraint(rng)
+	if err != nil {
+		return "", nil // a range we cannot read is not the user's problem
+	}
+	if !c.Check(have) {
+		return fmt.Sprintf("这个 DSH 版本需要 Node %s，当前是 %s", rng, v), nil
 	}
 	return "", nil
 }

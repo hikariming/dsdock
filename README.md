@@ -4,7 +4,7 @@
 
 DSDock 不是 DSH 插件，不做聊天界面，也不替代 DSH。它在 DSH 外面工作，所以 DSH 起不来的时候也能把它救回来。
 
-> 🚧 **M1 开发中**：插件生命周期的命令行（安装、卸载、更新、禁用、快照、回滚、启动测试）已经可以用，在 Linux 上对真实的 DSH 做过端到端测试。DSH 版本管理和图形界面还没做。
+> 🚧 **M1 已完成（命令行）**：插件生命周期（安装、卸载、更新、禁用、快照、回滚、启动测试）和 DSH 版本管理（多版本并存、切换、按 profile 锁定、`dsh` 转发器）都可以用，在 Linux 上对真实的 DSH 做过端到端测试。图形界面还没做；macOS、Windows 的实测在进行中。
 
 ## 计划中的功能
 
@@ -33,9 +33,23 @@ go build -o dsdock .
 ./dsdock help
 ```
 
+DSH 版本管理：
+
+```bash
+./dsdock dsh list --available                    # 可以安装的版本（带 latest / next / alpha 渠道）
+./dsdock dsh install latest                      # 第一个装上的版本自动设为默认
+./dsdock dsh install next
+./dsdock dsh use 0.2.1-rc.4                      # 切换前检查：哪些插件会被跳过、会话格式会不会降级
+./dsdock dsh pin 0.2.1-rc.2 -p work              # 让 work 固定使用某个版本
+./dsdock dsh shim                                # 装上转发器，之后在终端里敲 dsh 就会自动选对版本
+./dsdock dsh adopt                               # 接管已有的 npm i -g 安装，不移动、不删除
+```
+
 每次改动之前都会自动拍快照；改动后配置无法组装、或者（加了 `--smoke` 时）插件没能激活，都会**自动回滚**。
 
-默认使用 PATH 里的 `dsh`。要指定某个安装，设置 `DSDOCK_DSH=<dsh 的 lib/bin.js>` 和 `DSDOCK_NODE=<node>`。
+DSDock 管理了版本之后就用它们（profile 锁定的版本优先，其次是默认版本）；还没有管理任何版本时用 PATH 里的 `dsh`。要临时指定某个安装，设置 `DSDOCK_DSH=<dsh 的 lib/bin.js>`（和 `DSDOCK_NODE=<node>`）。
+
+装前检查会参考 [dshfind](https://dshfind.com) 的数据：被标记为有风险的仓库（比如冒用官方包名的假冒仓库）、已归档或长期不更新的仓库都会提示。
 
 ## 文档
 

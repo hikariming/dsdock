@@ -22,6 +22,7 @@ import (
 	"github.com/hikariming/dsdock/internal/profile"
 	"github.com/hikariming/dsdock/internal/snapshot"
 	"github.com/hikariming/dsdock/internal/txn"
+	"github.com/hikariming/dsdock/internal/versions"
 )
 
 // Version is set at build time.
@@ -51,6 +52,16 @@ const usage = `DSDock：DeepSeek Harness 的外部管理器
 诊断
   smoke -p <profile>         真正启动一次 profile，检查每个插件是否激活
 
+DSH 版本
+  dsh list [--available]     已安装的版本；--available 列出可以安装的版本
+  dsh install <版本|渠道>     安装（渠道：latest、next、alpha）；第一个装上的版本自动设为默认
+  dsh use <版本>              切换默认版本（先检查插件兼容性和会话格式）
+  dsh pin <版本> -p <profile> 让某个 profile 固定使用一个版本；dsh unpin -p <profile> 取消
+  dsh which [-p <profile>]   现在会用哪个版本、为什么
+  dsh adopt [路径]            接管已有的安装（比如 npm i -g 装的），不移动、不删除
+  dsh uninstall <版本>        卸载
+  dsh shim                   安装 dsh 转发器：在终端里敲 dsh 时自动选对版本
+
 选项
   -p, --profile <名字>        要操作的 profile
   --smoke                    改动后再做一次启动测试
@@ -63,7 +74,8 @@ const usage = `DSDock：DeepSeek Harness 的外部管理器
 
 环境变量
   DSH_HOME                   DSH 的数据目录（默认 ~/.dsh）
-  DSDOCK_DSH                 dsh 的 lib/bin.js 或可执行文件（默认用 PATH 里的 dsh）
+  DSDOCK_DSH                 dsh 的 lib/bin.js 或可执行文件（优先于 DSDock 管理的版本）
+  DSDOCK_DSH_VERSION         临时指定用哪个 DSDock 管理的版本
   DSDOCK_NODE                运行 bin.js 的 node
   DSDOCK_HOME                DSDock 自己的数据目录
 `
@@ -76,14 +88,18 @@ func Main(argv []string) int {
 }
 
 type app struct {
-	a      *args
-	out    io.Writer
-	errw   io.Writer
-	in     io.Reader
-	env    *dshenv.Env
-	store  *snapshot.Store
-	engine *txn.Engine
-	reg    *npmreg.Client
+	a       *args
+	out     io.Writer
+	errw    io.Writer
+	in      io.Reader
+	dataDir string
+	home    string // DSH_HOME
+	env     *dshenv.Env
+	envWhy  string // where env came from, for status and which
+	store   *snapshot.Store
+	engine  *txn.Engine
+	reg     *npmreg.Client
+	vers    *versions.Manager
 }
 
 func run(ctx context.Context, argv []string, out, errw io.Writer, in io.Reader) int {
@@ -135,17 +151,22 @@ func (e exitError) Error() string { return fmt.Sprintf("exit %d", int(e)) }
 
 func (ap *app) dispatch(ctx context.Context) error {
 	cmd, rest := ap.a.pos[0], ap.a.pos[1:]
-	handlers := map[string]func(context.Context, []string) error{
-		"status":  ap.cmdStatus,
-		"check":   ap.cmdCheck,
-		"add":     ap.cmdAdd,
-		"remove":  ap.cmdRemove,
-		"update":  ap.cmdUpdate,
-		"disable": func(ctx context.Context, r []string) error { return ap.cmdToggle(ctx, r, true) },
-		"enable":  func(ctx context.Context, r []string) error { return ap.cmdToggle(ctx, r, false) },
-		"snap":    ap.cmdSnap,
-		"smoke":   ap.cmdSmoke,
-		"log":     ap.cmdLog,
+	type handler struct {
+		run     func(context.Context, []string) error
+		needEnv bool // resolves a dsh to run before the command starts
+	}
+	handlers := map[string]handler{
+		"status":  {ap.cmdStatus, false},
+		"check":   {ap.cmdCheck, true},
+		"add":     {ap.cmdAdd, true},
+		"remove":  {ap.cmdRemove, true},
+		"update":  {ap.cmdUpdate, true},
+		"disable": {func(ctx context.Context, r []string) error { return ap.cmdToggle(ctx, r, true) }, true},
+		"enable":  {func(ctx context.Context, r []string) error { return ap.cmdToggle(ctx, r, false) }, true},
+		"snap":    {ap.cmdSnap, true},
+		"smoke":   {ap.cmdSmoke, true},
+		"log":     {ap.cmdLog, false},
+		"dsh":     {ap.cmdDSH, false},
 	}
 	h, ok := handlers[cmd]
 	if !ok {
@@ -154,15 +175,22 @@ func (ap *app) dispatch(ctx context.Context) error {
 	if err := ap.open(); err != nil {
 		return err
 	}
-	return h(ctx, rest)
+	if h.needEnv {
+		env, why, err := ap.envFor(ap.a.str("profile"))
+		if err != nil {
+			return err
+		}
+		ap.env, ap.envWhy, ap.engine = env, why, ap.engineFor(env)
+	}
+	return h.run(ctx, rest)
 }
 
 func (ap *app) open() error {
-	env, err := dshenv.Discover()
+	dir, err := appdir.Dir()
 	if err != nil {
 		return err
 	}
-	dir, err := appdir.Dir()
+	home, err := dshenv.Home()
 	if err != nil {
 		return err
 	}
@@ -170,13 +198,47 @@ func (ap *app) open() error {
 	if err != nil {
 		return err
 	}
-	ap.env, ap.store = env, store
+	ap.dataDir, ap.home, ap.store = dir, home, store
 	ap.reg = npmreg.New(ap.a.str("registry"))
-	ap.engine = &txn.Engine{Env: env, Store: store, LockDir: filepath.Join(dir, "locks")}
+	ap.vers, err = versions.Open(store.DB(), filepath.Join(dir, "versions"), ap.reg)
+	if err != nil {
+		return err
+	}
 	if !ap.a.is("json") {
-		ap.engine.Progress = func(msg string) { fmt.Fprintln(ap.errw, "  ·", msg) }
+		ap.vers.Progress = func(msg string) { fmt.Fprintln(ap.errw, "  ·", msg) }
 	}
 	return nil
+}
+
+func (ap *app) shimDir() string { return filepath.Join(ap.dataDir, "bin") }
+
+// envFor picks the dsh that works on a profile (which may be empty):
+// DSDOCK_DSH when set, else the release DSDock resolves (pin, default,
+// adopted), else the dsh on PATH that is not DSDock's own shim.
+func (ap *app) envFor(profileName string) (*dshenv.Env, string, error) {
+	if os.Getenv("DSDOCK_DSH") != "" {
+		env, err := dshenv.Discover(ap.shimDir())
+		return env, "DSDOCK_DSH", err
+	}
+	inst, why, err := ap.vers.Resolve(ap.home, profileName)
+	switch {
+	case err == nil:
+		env, err := inst.Env(ap.home)
+		return env, why, err
+	case errors.Is(err, versions.ErrNoVersion):
+		env, err := dshenv.Discover(ap.shimDir())
+		return env, "PATH", err
+	default:
+		return nil, "", err
+	}
+}
+
+func (ap *app) engineFor(env *dshenv.Env) *txn.Engine {
+	e := &txn.Engine{Env: env, Store: ap.store, LockDir: filepath.Join(ap.dataDir, "locks")}
+	if !ap.a.is("json") {
+		e.Progress = func(msg string) { fmt.Fprintln(ap.errw, "  ·", msg) }
+	}
+	return e
 }
 
 func (ap *app) close() {
@@ -198,9 +260,9 @@ func (ap *app) loadProfile() (*profile.Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	p, err := profile.Load(ap.env.Home, name)
+	p, err := profile.Load(ap.home, name)
 	if errors.Is(err, profile.ErrNotExist) {
-		return nil, fmt.Errorf("profile %s 不存在（%s）。\n  新建 profile：dsh plugin --profile %s add <包>\n  （只有 web 等官方模板名会自带 Web 界面；其它名字想要 Web，用 dsh --profile %s --from-default-profile web）", name, profile.Dir(ap.env.Home, name), name, name)
+		return nil, fmt.Errorf("profile %s 不存在（%s）。\n  新建 profile：dsh plugin --profile %s add <包>\n  （只有 web 等官方模板名会自带 Web 界面；其它名字想要 Web，用 dsh --profile %s --from-default-profile web）", name, profile.Dir(ap.home, name), name, name)
 	}
 	return p, err
 }

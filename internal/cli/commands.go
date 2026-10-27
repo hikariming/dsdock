@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/hikariming/dsdock/internal/catalog"
 	"github.com/hikariming/dsdock/internal/dshenv"
 	"github.com/hikariming/dsdock/internal/layer"
 	"github.com/hikariming/dsdock/internal/preflight"
@@ -27,27 +29,36 @@ type profileStatus struct {
 	Error      string            `json:"error,omitempty"`
 	Duplicates []layer.Duplicate `json:"duplicates,omitempty"`
 	Unmatched  []layer.Unmatched `json:"unmatched,omitempty"`
+	Skipped    []layer.Skipped   `json:"skipped,omitempty"`
 	Running    []proc.Running    `json:"running,omitempty"`
 	LastSnap   string            `json:"lastSnapshot,omitempty"`
+	DSH        string            `json:"dsh,omitempty"`
+	DSHSource  string            `json:"dshSource,omitempty"`
 }
 
 func (ap *app) cmdStatus(ctx context.Context, _ []string) error {
-	version, err := ap.env.Version(ctx)
-	if err != nil {
-		return err
-	}
-	nodeProblem, _ := ap.env.CheckNode(ctx)
 	var profiles []*profile.Profile
+	var err error
 	if name := ap.a.str("profile"); name != "" {
-		p, err := ap.loadProfile()
+		p, err := ap.loadProfileIn(ap.home)
 		if err != nil {
 			return err
 		}
 		profiles = []*profile.Profile{p}
-	} else if profiles, err = profile.List(ap.env.Home); err != nil {
+	} else if profiles, err = profile.List(ap.home); err != nil {
 		return err
 	}
 	running, _ := proc.FindRunning(ctx)
+
+	// The release that runs when no profile is named, for the header.
+	head := map[string]any{"home": ap.home}
+	if env, why, err := ap.envFor(""); err == nil {
+		v, _ := env.Version(ctx)
+		np, _ := env.CheckNode(ctx)
+		head["version"], head["source"], head["entry"], head["nodeProblem"] = v, why, env.Entry, np
+	} else {
+		head["error"] = err.Error()
+	}
 
 	var list []profileStatus
 	for _, p := range profiles {
@@ -55,7 +66,15 @@ func (ap *app) cmdStatus(ctx context.Context, _ []string) error {
 		for _, b := range p.External() {
 			st.Versions[b] = p.InstalledVersion(b)
 		}
-		c, err := ap.engine.Compose(ctx, p.Name)
+		env, why, err := ap.envFor(p.Name)
+		if err != nil {
+			st.Error = err.Error()
+			list = append(list, st)
+			continue
+		}
+		st.DSH, _ = env.Version(ctx)
+		st.DSHSource = why
+		c, err := ap.engineFor(env).Compose(ctx, p.Name)
 		switch {
 		case err != nil:
 			st.Error = err.Error()
@@ -65,25 +84,31 @@ func (ap *app) cmdStatus(ctx context.Context, _ []string) error {
 			st.Healthy = true
 			st.Duplicates = c.Tree.Duplicates()
 			st.Unmatched = c.Warnings.Unmatched
+			st.Skipped = c.Warnings.Skipped
 		}
 		for _, r := range running {
 			if r.Profile == p.Name {
 				st.Running = append(st.Running, r)
 			}
 		}
-		if snaps, _ := ap.store.List(ap.env.Home, p.Name, 1); len(snaps) > 0 {
+		if snaps, _ := ap.store.List(ap.home, p.Name, 1); len(snaps) > 0 {
 			st.LastSnap = snaps[0].CreatedAt.Local().Format("2006-01-02 15:04")
 		}
 		list = append(list, st)
 	}
 
 	if ap.a.is("json") {
-		ap.json(map[string]any{"dsh": map[string]any{"version": version, "home": ap.env.Home, "entry": ap.env.Entry, "node": ap.env.Node, "nodeProblem": nodeProblem}, "profiles": list})
+		ap.json(map[string]any{"dsh": head, "profiles": list})
 		return nil
 	}
-	fmt.Fprintf(ap.out, "DSH %s   DSH_HOME %s\n", version, ap.env.Home)
-	if nodeProblem != "" {
-		fmt.Fprintf(ap.out, "⚠ %s\n", nodeProblem)
+	if e, ok := head["error"]; ok {
+		fmt.Fprintf(ap.out, "DSH：%s\n", e)
+	} else {
+		src, _ := head["source"].(string)
+		fmt.Fprintf(ap.out, "DSH %s（%s）   DSH_HOME %s\n", head["version"], sourceText[src], ap.home)
+		if np, _ := head["nodeProblem"].(string); np != "" {
+			fmt.Fprintf(ap.out, "⚠ %s\n", np)
+		}
 	}
 	if len(list) == 0 {
 		fmt.Fprintln(ap.out, "\n还没有 profile。")
@@ -93,14 +118,18 @@ func (ap *app) cmdStatus(ctx context.Context, _ []string) error {
 		mark := "✓"
 		if !st.Healthy {
 			mark = "✗"
-		} else if len(st.Duplicates)+len(st.Unmatched) > 0 {
+		} else if len(st.Duplicates)+len(st.Unmatched)+len(st.Skipped) > 0 {
 			mark = "⚠"
 		}
 		web := ""
 		if st.Profile.HasWeb() {
 			web = "  [web]"
 		}
-		fmt.Fprintf(ap.out, "\n%s %s%s\n", mark, st.Profile.Name, web)
+		pin := ""
+		if st.DSHSource == "pin" {
+			pin = fmt.Sprintf("  固定 DSH %s", st.DSH)
+		}
+		fmt.Fprintf(ap.out, "\n%s %s%s%s\n", mark, st.Profile.Name, web, pin)
 		for _, b := range st.Profile.External() {
 			v := st.Versions[b]
 			if v == "" {
@@ -116,6 +145,9 @@ func (ap *app) cmdStatus(ctx context.Context, _ []string) error {
 		}
 		for _, d := range st.Duplicates {
 			fmt.Fprintf(ap.out, "    ⚠ id %q 被 %s 重复插入，只有 %s 生效\n", d.ID, strings.Join(d.Sources, "、"), d.Winner())
+		}
+		for _, sk := range st.Skipped {
+			fmt.Fprintf(ap.out, "    ⚠ %s 被 DSH 跳过，没有生效：%s\n", sk.Package, sk.Short())
 		}
 		for _, u := range st.Unmatched {
 			fmt.Fprintf(ap.out, "    ⚠ 覆盖找不到目标 %q（%s）\n", u.ID, u.File)
@@ -143,6 +175,9 @@ func (ap *app) checker(ctx context.Context, p *profile.Profile) (*preflight.Chec
 	}
 	if comp, err := ap.engine.Compose(ctx, p.Name); err == nil && comp.OK {
 		c.Tree = comp.Tree
+	}
+	if ix, err := catalog.Load(ctx, filepath.Join(ap.dataDir, "cache")); err == nil {
+		c.Catalog = ix
 	}
 	return c, nil
 }
@@ -255,7 +290,7 @@ func (ap *app) cmdAdd(ctx context.Context, rest []string) error {
 			return ap.env.Plugin(ctx, p.Name, "add", cand.Arg())
 		},
 		Expect: func(c *txn.Composition) error {
-			now, err := profile.Load(ap.env.Home, p.Name)
+			now, err := profile.Load(ap.home, p.Name)
 			if err != nil {
 				return err
 			}
@@ -269,6 +304,9 @@ func (ap *app) cmdAdd(ctx context.Context, rest []string) error {
 				return errors.New("安装后没有新增任何组合包（这个包可能没有声明 dsh.bundle）")
 			}
 			for _, b := range added {
+				if reason, skipped := c.Warnings.SkippedPackage(b); skipped {
+					return fmt.Errorf("DSH 跳过了 %s：%s", b, reason)
+				}
 				if !c.Tree.HasSource(b) {
 					return fmt.Errorf("%s 已安装，但它的配置层没有出现在组装结果里", b)
 				}
@@ -331,7 +369,7 @@ func (ap *app) cmdUpdate(ctx context.Context, rest []string) error {
 			return ap.env.Plugin(ctx, p.Name, "add", cand.Arg())
 		},
 		Expect: func(c *txn.Composition) error {
-			now, err := profile.Load(ap.env.Home, p.Name)
+			now, err := profile.Load(ap.home, p.Name)
 			if err != nil {
 				return err
 			}
@@ -519,7 +557,7 @@ func (ap *app) cmdSnap(ctx context.Context, rest []string) error {
 		if limit == 0 {
 			limit = 20
 		}
-		snaps, err := ap.store.List(ap.env.Home, name, limit)
+		snaps, err := ap.store.List(ap.home, name, limit)
 		if err != nil {
 			return err
 		}
@@ -553,7 +591,7 @@ func (ap *app) cmdSnap(ctx context.Context, rest []string) error {
 		}
 		defer unlock()
 		version, _ := ap.env.Version(ctx)
-		s, err := ap.store.Take(ap.env.Home, p.Name, "manual", version, true)
+		s, err := ap.store.Take(ap.home, p.Name, "manual", version, true)
 		if err != nil {
 			return err
 		}
@@ -634,7 +672,7 @@ func (ap *app) cmdSmoke(ctx context.Context, _ []string) error {
 func (ap *app) cmdLog(ctx context.Context, _ []string) error {
 	name := ap.a.str("profile")
 	limit, _ := strconv.Atoi(ap.a.str("limit"))
-	ops, err := ap.store.Ops(ap.env.Home, name, limit)
+	ops, err := ap.store.Ops(ap.home, name, limit)
 	if err != nil {
 		return err
 	}

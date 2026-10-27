@@ -8,13 +8,25 @@ import (
 )
 
 func TestNodeProblem(t *testing.T) {
-	for v, bad := range map[string]bool{"v18.20.4": true, "v22.23.3": true, "v24.9.0": false, "v24.22.1": false, "v25.0.0": false} {
-		msg, err := nodeProblem(v)
+	cases := []struct {
+		v, rng string
+		bad    bool
+	}{
+		{"v18.20.4", "", true},
+		{"v22.18.0", "", true},
+		{"v22.23.3", "", false}, // rc.2/rc.3 declare ^22.19.0 || >=24.0.0
+		{"v24.22.1", "", false},
+		{"v22.23.3", ">=24.9.0", true},
+		{"v24.9.0", ">=24.9.0", false},
+		{"v24.0.0", "not a range", false},
+	}
+	for _, c := range cases {
+		msg, err := NodeProblem(c.v, c.rng)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if (msg != "") != bad {
-			t.Errorf("nodeProblem(%s) = %q", v, msg)
+		if (msg != "") != c.bad {
+			t.Errorf("NodeProblem(%s, %q) = %q", c.v, c.rng, msg)
 		}
 	}
 }
@@ -52,7 +64,7 @@ func TestDiscoverWithOverride(t *testing.T) {
 	t.Setenv("DSDOCK_DSH", bin)
 	t.Setenv("DSDOCK_NODE", "/some/node")
 	t.Setenv("DSH_HOME", dir)
-	e, err := Discover()
+	e, err := Discover("")
 	if err != nil {
 		t.Fatal(err)
 	}

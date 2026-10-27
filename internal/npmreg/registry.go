@@ -12,7 +12,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -45,8 +47,10 @@ type Manifest struct {
 	DSH              json.RawMessage   `json:"dsh"`
 	Deprecated       string            `json:"deprecated"`
 	HasInstallScript bool              `json:"hasInstallScript"`
+	Repository       json.RawMessage   `json:"repository"`
 	Dist             struct {
-		Tarball string `json:"tarball"`
+		Tarball      string `json:"tarball"`
+		UnpackedSize int64  `json:"unpackedSize"`
 	} `json:"dist"`
 }
 
@@ -110,18 +114,40 @@ func (c *Client) Manifest(ctx context.Context, name, version string) (*Manifest,
 	return &m, nil
 }
 
-// ReadFiles streams a version's tarball and returns the named files (paths
-// relative to the package root). Files missing from the tarball are absent
-// from the result.
+// FileCDN serves single files out of published npm packages. Reading one
+// small file there avoids downloading a whole tarball: a 24 MB plugin kept
+// its cordis.patch.yml as the last tarball entry and took over two minutes
+// to reach. DSDOCK_FILE_CDN overrides it; "off" disables it.
+var FileCDN = "https://cdn.jsdelivr.net/npm"
+
+// maxTarball is the largest unpacked package ReadFiles will download whole
+// when the CDN cannot serve the files.
+const maxTarball = 5 << 20
+
+// ErrTooLarge means the files could only be read by downloading a package
+// larger than maxTarball.
+var ErrTooLarge = errors.New("package too large to inspect before installing")
+
+// ReadFiles returns the named files (paths relative to the package root) of
+// one published version: from the file CDN when possible, otherwise from the
+// tarball if it is small. Files the package lacks are absent from the result.
 func (c *Client) ReadFiles(ctx context.Context, m *Manifest, names ...string) (map[string][]byte, error) {
+	if out, ok := c.readFromCDN(ctx, m, names); ok {
+		return out, nil
+	}
 	if m.Dist.Tarball == "" {
 		return nil, fmt.Errorf("%s@%s has no tarball", m.Name, m.Version)
 	}
+	if m.Dist.UnpackedSize > maxTarball {
+		return nil, ErrTooLarge
+	}
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.Dist.Tarball, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.HTTP.Do(req)
+	resp, err := http.DefaultClient.Do(req) // the context bounds it; c.HTTP's timeout is for metadata
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +156,47 @@ func (c *Client) ReadFiles(ctx context.Context, m *Manifest, names ...string) (m
 		return nil, fmt.Errorf("GET %s: %s", m.Dist.Tarball, resp.Status)
 	}
 	return readTarball(io.LimitReader(resp.Body, 256<<20), names)
+}
+
+// readFromCDN fetches every file from the CDN. ok is false when the CDN is
+// off or any request fails for a reason other than the file being absent.
+func (c *Client) readFromCDN(ctx context.Context, m *Manifest, names []string) (map[string][]byte, bool) {
+	base := FileCDN
+	if v := os.Getenv("DSDOCK_FILE_CDN"); v != "" {
+		base = v
+	}
+	if base == "off" || m.Name == "" || m.Version == "" {
+		return nil, false
+	}
+	out := map[string][]byte{}
+	for _, n := range names {
+		rel := path.Clean(strings.TrimPrefix(n, "./"))
+		u := strings.TrimRight(base, "/") + "/" + m.Name + "@" + m.Version + "/" + rel
+		rctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		req, err := http.NewRequestWithContext(rctx, http.MethodGet, u, nil)
+		if err != nil {
+			cancel()
+			return nil, false
+		}
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			cancel()
+			return nil, false
+		}
+		b, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		resp.Body.Close()
+		cancel()
+		switch {
+		case err != nil:
+			return nil, false
+		case resp.StatusCode == http.StatusNotFound:
+			continue
+		case resp.StatusCode != http.StatusOK:
+			return nil, false
+		}
+		out[rel] = b
+	}
+	return out, true
 }
 
 func readTarball(r io.Reader, names []string) (map[string][]byte, error) {
@@ -167,4 +234,54 @@ func readTarball(r io.Reader, names []string) (map[string][]byte, error) {
 		out[path.Clean(rel)] = b
 	}
 	return out, nil
+}
+
+// Releases lists published versions with their publish times, from the full
+// packument (the abbreviated one carries no times).
+type Releases struct {
+	DistTags map[string]string `json:"dist-tags"`
+	Time     map[string]string `json:"time"`
+	Versions map[string]struct {
+		Deprecated string `json:"deprecated"`
+	} `json:"versions"`
+}
+
+// Releases fetches the version list with publish times.
+func (c *Client) Releases(ctx context.Context, name string) (*Releases, error) {
+	var r Releases
+	if err := c.get(ctx, c.Registry+"/"+escape(name), "application/json", &r); err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	return &r, nil
+}
+
+var reGitHub = regexp.MustCompile(`(?i)github\.com[/:]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/#?].*)?$`)
+
+// GitHubRepo returns "owner/repo" for a package.json repository field (a
+// string or {"url": ...}), or "" when it does not point at GitHub.
+func GitHubRepo(repository json.RawMessage) string {
+	var url string
+	if json.Unmarshal(repository, &url) != nil {
+		var obj struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(repository, &obj) != nil {
+			return ""
+		}
+		url = obj.URL
+	}
+	return GitHubRepoFromURL(url)
+}
+
+// GitHubRepoFromURL accepts github URLs, git+https/ssh forms and the
+// "github:owner/repo" shorthand.
+func GitHubRepoFromURL(url string) string {
+	if rest, ok := strings.CutPrefix(url, "github:"); ok {
+		url = "github.com/" + rest
+	}
+	m := reGitHub.FindStringSubmatch(url)
+	if m == nil {
+		return ""
+	}
+	return m[1] + "/" + m[2]
 }

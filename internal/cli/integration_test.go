@@ -38,6 +38,10 @@ func newIT(t *testing.T) *itEnv {
 	if node := os.Getenv("DSDOCK_IT_NODE"); node != "" {
 		t.Setenv("DSDOCK_NODE", node)
 	}
+	t.Setenv("DSDOCK_DSH_VERSION", "")
+	if os.Getenv("DSDOCK_IT_NETWORK") != "1" {
+		t.Setenv("DSDOCK_NO_CATALOG", "1") // stay offline unless asked
+	}
 	if err := os.CopyFS(e.fixtures, os.DirFS("testdata/bundles")); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +53,7 @@ func (e *itEnv) fixture(name string) string { return filepath.Join(e.fixtures, n
 // dsh runs dsh directly, for setup that DSDock deliberately does not do.
 func (e *itEnv) dsh(args ...string) {
 	e.t.Helper()
-	env, err := dshenv.Discover()
+	env, err := dshenv.Discover("")
 	if err != nil {
 		e.t.Fatal(err)
 	}

@@ -15,10 +15,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
 
+	"github.com/hikariming/dsdock/internal/catalog"
 	"github.com/hikariming/dsdock/internal/layer"
 	"github.com/hikariming/dsdock/internal/npmreg"
 	"github.com/hikariming/dsdock/internal/profile"
@@ -47,6 +49,9 @@ type Candidate struct {
 	Version  string            `json:"version,omitempty"`
 	Manifest *npmreg.Manifest  `json:"-"`
 	Patches  map[string][]byte `json:"-"` // patch file path -> content
+	// PatchErr is why the patch files could not be read before installing;
+	// PF10 then waits for the post-install check.
+	PatchErr string `json:"patchError,omitempty"`
 }
 
 // Arg is the argument for `dsh plugin add`.
@@ -93,8 +98,10 @@ type Checker struct {
 	DSHVersion  string
 	NodeVersion string // without the leading "v"; empty skips PF08
 	Profile     *profile.Profile
-	Tree        *layer.Tree // current composition; nil skips PF10
-	AllowPre    bool        // consider prerelease versions when picking one
+	Tree        *layer.Tree    // current composition; nil skips PF10
+	Catalog     *catalog.Index // dshfind data; nil skips PF06/PF07
+	AllowPre    bool           // consider prerelease versions when picking one
+	Now         time.Time      // for PF07; zero means time.Now
 }
 
 // Resolve turns a spec into a concrete candidate. For npm specs without an
@@ -144,9 +151,10 @@ func (c *Checker) Resolve(ctx context.Context, s Spec) (*Candidate, error) {
 	if len(safe) > 0 {
 		files, err := c.Registry.ReadFiles(ctx, m, safe...)
 		if err != nil {
-			return nil, fmt.Errorf("read %s@%s patch: %w", m.Name, m.Version, err)
+			cand.PatchErr = err.Error() // not fatal: verification after install covers it
+		} else {
+			cand.Patches = files
 		}
-		cand.Patches = files
 	}
 	return cand, nil
 }
@@ -215,9 +223,11 @@ func (c *Checker) Check(cand *Candidate, mode Mode) *Report {
 	r := &Report{Candidate: cand}
 	if cand.Spec.Kind == Git {
 		r.add("PF05", Warn, "从 git 安装：pnpm 会先拦截它的构建脚本（prepare），需要在 profile 的 pnpm-workspace.yaml 里放行后才能装上；装之前无法检查包内容，装完后会再验证一次")
+		c.checkCatalog(r, "", gitRepo(cand.Spec.Raw))
 		return r
 	}
 	m := cand.Manifest
+	c.checkCatalog(r, cand.Name, npmreg.GitHubRepo(m.Repository))
 
 	c.checkBundle(r, m)
 	c.checkCompat(r, m)
@@ -319,10 +329,62 @@ func (c *Checker) checkNode(r *Report, m *npmreg.Manifest) {
 	}
 }
 
+// stale is how long without a push makes PF07 mention it.
+const stale = 180 * 24 * time.Hour
+
+// checkCatalog is PF06 (risk flag) and PF07 (archived or inactive), using
+// dshfind's data, plus dshfind's score as information.
+func (c *Checker) checkCatalog(r *Report, pkg, repo string) {
+	if c.Catalog == nil {
+		return
+	}
+	match, others := c.Catalog.Lookup(pkg, repo)
+	if match == nil {
+		for _, o := range others {
+			if o.Risky {
+				r.add("PF06", Warn, "dshfind 把使用同一个包名的仓库 %s 标记为有风险：%s。请确认这个包来自你信任的仓库", o.FullName, o.RiskNote)
+			}
+		}
+		return
+	}
+	if match.Risky {
+		note := match.RiskNote
+		if note == "" {
+			note = "没有附说明"
+		}
+		r.add("PF06", Warn, "dshfind 把仓库 %s 标记为有风险：%s", match.FullName, note)
+	}
+	now := c.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	switch {
+	case match.Archived:
+		r.add("PF07", Warn, "仓库 %s 已归档，作者不再维护", match.FullName)
+	case !match.PushedAt.IsZero() && now.Sub(match.PushedAt) > stale:
+		r.add("PF07", Info, "仓库 %s 已经 %d 天没有更新", match.FullName, int(now.Sub(match.PushedAt).Hours()/24))
+	}
+	if match.Grade != "" && match.Score != nil {
+		r.add("dshfind", Info, "评分 %s（%.0f 分）：https://dshfind.com/plugins/%s", match.Grade, *match.Score, match.FullName)
+	}
+}
+
+// gitRepo extracts owner/repo from a git install spec when it is on GitHub.
+func gitRepo(spec string) string {
+	if reShortGit.MatchString(spec) && !strings.Contains(spec, ":") {
+		spec = "github:" + spec
+	}
+	return npmreg.GitHubRepoFromURL(spec)
+}
+
 // checkDuplicates is PF10. dsh keeps only the last row with a given id, and
 // a newly installed bundle is appended to the end of the stack, so a clash
 // silently disables whichever installed plugin owned that id first.
 func (c *Checker) checkDuplicates(r *Report, cand *Candidate, mode Mode) {
+	if cand.PatchErr != "" {
+		r.add("PF10", Info, "装之前读不到插件的配置文件（%s），重复 id 会在安装后检查", cand.PatchErr)
+		return
+	}
 	if c.Tree == nil || len(cand.Patches) == 0 {
 		return
 	}

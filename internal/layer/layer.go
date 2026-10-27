@@ -238,16 +238,44 @@ type Inactive struct {
 // having thrown.
 func (i Inactive) Pending() bool { return strings.HasPrefix(i.Reason, "pending") }
 
+// Skipped is a bundle dsh left out of the composition, typically because it
+// is incompatible with the running release. dsh still exits 0.
+type Skipped struct {
+	Package string `json:"package"`
+	Reason  string `json:"reason"`
+}
+
+// Short trims dsh's explanation to its first sentence.
+func (s Skipped) Short() string {
+	r := strings.TrimPrefix(s.Reason, "Error: ")
+	if i := strings.Index(r, ". "); i > 0 {
+		r = r[:i]
+	}
+	return r
+}
+
 // Warnings are the parts of dsh's stderr DSDock understands.
 type Warnings struct {
 	Unmatched []Unmatched `json:"unmatched,omitempty"`
 	Inactive  []Inactive  `json:"inactive,omitempty"`
+	Skipped   []Skipped   `json:"skipped,omitempty"`
+}
+
+// SkippedPackage reports why a bundle was skipped, if it was.
+func (w Warnings) SkippedPackage(pkg string) (string, bool) {
+	for _, s := range w.Skipped {
+		if s.Package == pkg {
+			return s.Short(), true
+		}
+	}
+	return "", false
 }
 
 var (
 	reUnmatched     = regexp.MustCompile(`^dsh: \[(.+)\] patch: entry "(.*)" not found$`)
 	reInactiveHead  = regexp.MustCompile(`^dsh: warning: \d+ entr(?:y|ies) did not activate$`)
 	reInactiveEntry = regexp.MustCompile(`^(\S+) \((.+?)\): (.*)$`)
+	reSkipped       = regexp.MustCompile(`^dsh: skipping profile bundle "(.+?)": (.*)$`)
 )
 
 // ParseWarnings reads dsh's stderr. Lines it does not recognise are ignored.
@@ -256,6 +284,11 @@ func ParseWarnings(stderr string) Warnings {
 	inInactive := false
 	for _, line := range strings.Split(stderr, "\n") {
 		line = strings.TrimRight(line, "\r")
+		if m := reSkipped.FindStringSubmatch(line); m != nil {
+			w.Skipped = append(w.Skipped, Skipped{Package: m[1], Reason: m[2]})
+			inInactive = false
+			continue
+		}
 		if m := reUnmatched.FindStringSubmatch(line); m != nil {
 			w.Unmatched = append(w.Unmatched, Unmatched{File: m[1], ID: m[2]})
 			inInactive = false

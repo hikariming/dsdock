@@ -45,6 +45,7 @@ func TestClient(t *testing.T) {
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
+	t.Setenv("DSDOCK_FILE_CDN", "off") // exercise the tarball path
 	c := New(srv.URL)
 	ctx := context.Background()
 	p, err := c.Packument(ctx, "@scope/pkg")
@@ -64,5 +65,50 @@ func TestClient(t *testing.T) {
 	}
 	if _, err := c.Manifest(ctx, "nope", "1.0.0"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing package err = %v", err)
+	}
+}
+
+func TestGitHubRepo(t *testing.T) {
+	cases := map[string]string{
+		`"https://github.com/PlutoKeating/dsh-lark-bot"`:                     "PlutoKeating/dsh-lark-bot",
+		`{"type":"git","url":"git+https://github.com/liustack/modlens.git"}`: "liustack/modlens",
+		`{"url":"git@github.com:owner/repo.git"}`:                            "owner/repo",
+		`"github:owner/repo"`:                                                "owner/repo",
+		`{"url":"https://github.com/o/r/tree/main/packages/x"}`:              "o/r",
+		`"https://gitlab.com/o/r"`:                                           "",
+		`null`:                                                               "",
+	}
+	for in, want := range cases {
+		if got := GitHubRepo([]byte(in)); got != want {
+			t.Errorf("GitHubRepo(%s) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestReadFilesPrefersCDN(t *testing.T) {
+	var tarballHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cdn/@scope/pkg@1.0.0/cordis.patch.yml":
+			w.Write([]byte("- insert: []\n"))
+		case "/t.tgz":
+			tarballHits++
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("DSDOCK_FILE_CDN", srv.URL+"/cdn")
+	c := New(srv.URL)
+	m := &Manifest{Name: "@scope/pkg", Version: "1.0.0"}
+	m.Dist.Tarball, m.Dist.UnpackedSize = srv.URL+"/t.tgz", 24<<20
+	files, err := c.ReadFiles(context.Background(), m, "./cordis.patch.yml", "absent.yml")
+	if err != nil || string(files["cordis.patch.yml"]) == "" || len(files) != 1 || tarballHits != 0 {
+		t.Fatalf("files = %v, err = %v, tarball hits = %d", files, err, tarballHits)
+	}
+
+	t.Setenv("DSDOCK_FILE_CDN", "off")
+	if _, err := c.ReadFiles(context.Background(), m); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("large package without CDN: %v", err)
 	}
 }

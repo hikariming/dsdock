@@ -348,6 +348,32 @@ export function apply() {
 
 ---
 
+## 3.5 附加：验证 DSDock 本身（M0 做完后再做）
+
+DSDock 的命令行（插件生命周期和版本管理）已经写好，Linux 上全部测过。请在你的平台上再跑一遍，**发现问题就记进结果文件的"DSDock"一节**，不要直接改代码（除非用户要求）。需要 Go ≥ 1.26。
+
+```bash
+go build -o dsdock .          # Windows：go build -o dsdock.exe .
+go vet ./... && go test ./...
+```
+
+**macOS**（集成测试会真的安装 DSH 版本、启动 DSH，全部在临时目录里）：
+
+```bash
+DSDOCK_IT_DSH=<某个 DSH 的 lib/bin.js> DSDOCK_IT_NETWORK=1 go test ./internal/cli/ -run Integration -v -count=1
+```
+
+另外手动确认：`./dsdock dsh shim` 之后，从**新开的终端**和**从 Dock 启动的终端 App** 里运行 `dsh -V`，是否都走 DSDock 的转发器（这关系到 V12 里 GUI 程序读不到 PATH 的问题）。
+
+**Windows**（集成测试依赖 Unix 的转发器脚本，会自动跳过；请手动验证这几项）：
+
+1. 用独立的 `DSDOCK_HOME` 和 `DSH_HOME`（同 2.2 的隔离方式）：`.\dsdock.exe dsh install latest`，然后 `.\dsdock.exe dsh shim`，按提示**只在当前 PowerShell 会话**里把转发器目录加到 PATH 前面；
+2. `dsh -V`、`dsh plugin --profile web add <fx-ok 的路径>`、`dsh --profile web --no-open --port 38099`；
+3. 在第 2 步启动的 web 里按 **Ctrl+C**：DSH 是否正常退出？有没有出现"终止批处理操作吗"？用 `Get-CimInstance Win32_Process | ? CommandLine -match 'dsdock-m0'` 检查有没有残留的 node 或 dsh.exe；
+4. 直接关掉终端窗口（不按 Ctrl+C），再检查一次残留进程；
+5. `.\dsdock.exe add <fx-broken 的路径> -p web --smoke`：应该自动回滚，并且没有残留进程（这里用的是 `taskkill /T`）；
+6. DSH 运行时执行 `.\dsdock.exe remove fx-ok -p web`：记录是否出现文件占用错误，以及 DSDock 回滚后 profile 是否完好。
+
 ## 4. 收尾
 
 1. 把所有启动过的 DSH 进程都关掉（检查一遍有没有残留的 Node 进程）；

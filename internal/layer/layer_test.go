@@ -127,3 +127,15 @@ func TestParseCRLF(t *testing.T) {
 		t.Errorf("sources = %q", got)
 	}
 }
+
+func TestParseWarningsSkipped(t *testing.T) {
+	w := ParseWarnings(read(t, "stderr-skipped.txt"))
+	if len(w.Skipped) != 1 || w.Skipped[0].Package != "fx-old" {
+		t.Fatalf("skipped = %+v", w.Skipped)
+	}
+	short, ok := w.SkippedPackage("fx-old")
+	want := `Plugin fx-old@1.0.0 is incompatible with dsh 0.2.1-rc.4: requirements {"engines.dsh":"<0.2.1-rc.3"}`
+	if !ok || short != want {
+		t.Errorf("short = %q", short)
+	}
+}

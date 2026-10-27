@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/hikariming/dsdock/internal/catalog"
 	"github.com/hikariming/dsdock/internal/layer"
 	"github.com/hikariming/dsdock/internal/npmreg"
 	"github.com/hikariming/dsdock/internal/profile"
@@ -196,4 +198,61 @@ func TestPickVersion(t *testing.T) {
 	if _, err := c.pickVersion(ctx, s); err == nil {
 		t.Error("expected no compatible version for dsh 0.1.0")
 	}
+}
+
+func TestCatalogRules(t *testing.T) {
+	dir := t.TempDir()
+	ix := mustCatalog(t)
+	c := &Checker{DSHVersion: "0.2.1-rc.4", Catalog: ix, Now: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)}
+
+	official := writePlugin(t, dir, "dsh-lark-bot", `"repository":"https://github.com/PlutoKeating/dsh-lark-bot",`, "lark")
+	r := checkLocal(t, c, official, ModeAdd)
+	if _, flagged := rules(r)["PF06"]; flagged {
+		t.Errorf("official package flagged: %+v", r.Findings)
+	}
+	if rules(r)["dshfind"] != Info {
+		t.Errorf("score missing: %+v", r.Findings)
+	}
+
+	fake := filepath.Join(t.TempDir(), "x")
+	os.MkdirAll(fake, 0o755)
+	writePlugin(t, fake, "dsh-lark-bot", `"repository":{"url":"git+https://github.com/tarraencompassing61/dsh-lark-bot.git"},`, "lark")
+	r = checkLocal(t, c, filepath.Join(fake, "dsh-lark-bot"), ModeAdd)
+	if rules(r)["PF06"] != Warn {
+		t.Errorf("impostor not flagged: %+v", r.Findings)
+	}
+
+	norepo := writePlugin(t, t.TempDir(), "dsh-lark-bot", "", "lark")
+	r = checkLocal(t, c, norepo, ModeAdd)
+	if rules(r)["PF06"] != Warn || !strings.Contains(r.Findings[0].Message, "同一个包名") {
+		t.Errorf("unknown repo with a flagged namesake: %+v", r.Findings)
+	}
+
+	solo := writePlugin(t, t.TempDir(), "solo", "", "solo")
+	if r = checkLocal(t, c, solo, ModeAdd); rules(r)["PF07"] != Warn {
+		t.Errorf("archived: %+v", r.Findings)
+	}
+
+	s, _ := ParseSpec("tarraencompassing61/dsh-lark-bot", "/")
+	cand, _ := c.Resolve(context.Background(), s)
+	if r = c.Check(cand, ModeAdd); rules(r)["PF06"] != Warn {
+		t.Errorf("git impostor: %+v", r.Findings)
+	}
+}
+
+func mustCatalog(t *testing.T) *catalog.Index {
+	t.Helper()
+	doc := `{"data":[
+ {"full_name":"PlutoKeating/dsh-lark-bot","pushed_at":"2026-10-20T00:00:00Z","score":82,"grade":"A","install":{"pkg_name":"dsh-lark-bot"}},
+ {"full_name":"tarraencompassing61/dsh-lark-bot","is_risky":true,"risk_note":"假冒仓库","pushed_at":"2026-10-12T00:00:00Z","install":{"pkg_name":"dsh-lark-bot"}},
+ {"full_name":"o/solo","archived":true,"pushed_at":"2025-01-01T00:00:00Z","install":{"pkg_name":"solo"}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(doc)) }))
+	defer srv.Close()
+	t.Setenv("DSDOCK_CATALOG_URL", srv.URL)
+	t.Setenv("DSDOCK_NO_CATALOG", "")
+	ix, err := catalog.Load(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ix
 }

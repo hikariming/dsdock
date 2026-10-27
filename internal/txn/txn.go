@@ -353,6 +353,14 @@ func newWarnings(base, after *Composition) []string {
 			out = append(out, fmt.Sprintf("id %q 被多个插件插入（%s），只有 %s 会生效", d.ID, strings.Join(d.Sources, "、"), d.Winner()))
 		}
 	}
+	for _, sk := range base.Warnings.Skipped {
+		seen["sk:"+sk.Package] = true
+	}
+	for _, sk := range after.Warnings.Skipped {
+		if !seen["sk:"+sk.Package] {
+			out = append(out, fmt.Sprintf("%s 被 DSH 跳过，没有生效：%s", sk.Package, sk.Short()))
+		}
+	}
 	for _, u := range base.Warnings.Unmatched {
 		seen["um:"+u.File+u.ID] = true
 	}
