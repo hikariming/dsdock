@@ -1,0 +1,82 @@
+name: release
+
+# Push a tag like v0.1.0-preview.1 to build and publish. Tags with a "-"
+# (preview, beta, rc) are published as prereleases.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.1.0-preview.1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go vet ./... && go test ./...
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          LDFLAGS="-s -w -X github.com/hikariming/dsdock/internal/cli.Version=${TAG}"
+          for arch in arm64 amd64; do
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" -o "dist/dsdock-$arch" .
+          done
+          lipo -create -output dist/dsdock dist/dsdock-arm64 dist/dsdock-amd64
+          # Ad-hoc signature only: there is no Developer ID yet, so the
+          # binaries are not notarized (see the release notes).
+          for f in dist/dsdock dist/dsdock-arm64 dist/dsdock-amd64; do codesign --force --sign - "$f"; done
+          lipo -info dist/dsdock
+
+      - name: Smoke
+        run: |
+          set -euo pipefail
+          ./dist/dsdock version | tee /dev/stderr | grep -q "${TAG}"
+          ./dist/dsdock help | head -3
+          export DSDOCK_HOME="$RUNNER_TEMP/dsdock-home" DSH_HOME="$RUNNER_TEMP/dsh-home"
+          ./dist/dsdock dsh list
+          ./dist/dsdock dsh shim
+          test -x "$DSDOCK_HOME/bin/dsh"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          cd dist
+          for v in universal arm64 amd64; do
+            src=dsdock; [ "$v" = universal ] || src="dsdock-$v"
+            mkdir -p "pkg-$v" && cp "$src" "pkg-$v/dsdock"
+            cp ../README.md ../LICENSE "pkg-$v/"
+            tar -C "pkg-$v" -czf "dsdock-${TAG}-darwin-$v.tar.gz" dsdock README.md LICENSE
+          done
+          shasum -a 256 dsdock-*.tar.gz | tee SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sed "s/{{TAG}}/${TAG}/g" .github/release/notes.md > notes.md
+          flags=()
+          case "$TAG" in *-*) flags+=(--prerelease) ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/dsdock-*.tar.gz dist/SHA256SUMS --clobber
+          else
+            gh release create "$TAG" dist/dsdock-*.tar.gz dist/SHA256SUMS \
+              --title "DSDock ${TAG}" --notes-file notes.md "${flags[@]}"
+          fi
