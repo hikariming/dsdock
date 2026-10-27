@@ -54,7 +54,7 @@ func (s *Store) Ops(home, name string, limit int) ([]*Op, error) {
 		q += ` AND profile = ?`
 		args = append(args, name)
 	}
-	q += ` ORDER BY started_at DESC, id DESC LIMIT ?`
+	q += ` ORDER BY started_at DESC, rowid DESC LIMIT ?`
 	rows, err := s.db.Query(q, append(args, limit)...)
 	if err != nil {
 		return nil, err

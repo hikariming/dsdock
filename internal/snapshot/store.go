@@ -183,12 +183,12 @@ func (s *Store) List(home, name string, limit int) ([]*Snapshot, error) {
 	if limit <= 0 {
 		limit = 1 << 30
 	}
-	return s.query(`WHERE dsh_home = ? AND profile = ? ORDER BY created_at DESC, id DESC LIMIT ?`, home, name, limit)
+	return s.query(`WHERE dsh_home = ? AND profile = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`, home, name, limit)
 }
 
 // LastVerified is the newest snapshot known to compose cleanly.
 func (s *Store) LastVerified(home, name string) (*Snapshot, error) {
-	snaps, err := s.query(`WHERE dsh_home = ? AND profile = ? AND verified = 1 ORDER BY created_at DESC, id DESC LIMIT 1`, home, name)
+	snaps, err := s.query(`WHERE dsh_home = ? AND profile = ? AND verified = 1 ORDER BY created_at DESC, rowid DESC LIMIT 1`, home, name)
 	if err != nil || len(snaps) == 0 {
 		return nil, err
 	}

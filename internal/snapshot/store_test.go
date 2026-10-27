@@ -120,6 +120,29 @@ func TestListAndLastVerified(t *testing.T) {
 	}
 }
 
+// Snapshots taken within the same second (before/after of a fast change)
+// must still list newest first; ids alone do not order them.
+func TestOrderWithinSameInstant(t *testing.T) {
+	s, home := setup(t)
+	var ids []string
+	for i := 0; i < 20; i++ {
+		sn, err := s.Take(home, "web", "fast", "", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, sn.ID)
+	}
+	list, err := s.List(home, "web", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, sn := range list {
+		if want := ids[len(ids)-1-i]; sn.ID != want {
+			t.Fatalf("position %d = %s, want %s", i, sn.ID, want)
+		}
+	}
+}
+
 func TestReadFile(t *testing.T) {
 	s, home := setup(t)
 	sn, _ := s.Take(home, "web", "a", "", false)
