@@ -180,7 +180,7 @@ func (ap *app) dispatch(ctx context.Context) error {
 	}
 	ap.core, ap.home = c, c.Home
 	if !ap.a.is("json") {
-		c.Progress = func(msg string) { fmt.Fprintln(ap.errw, "  ·", msg) }
+		c.SetProgress(func(msg string) { fmt.Fprintln(ap.errw, "  ·", msg) })
 	}
 	if h.needEnv {
 		env, why, err := c.EnvFor(ap.a.str("profile"))

@@ -14,8 +14,8 @@ type args struct {
 }
 
 var (
-	valueFlags = map[string]string{"--profile": "profile", "-p": "profile", "--registry": "registry", "--to": "to", "--limit": "limit"}
-	boolFlags  = map[string]string{"--json": "json", "--yes": "yes", "-y": "yes", "--smoke": "smoke", "--pre": "pre", "--dry-run": "dry-run", "--force": "force", "--help": "help", "-h": "help", "--available": "available", "--no-boot": "no-boot"}
+	valueFlags = map[string]string{"--profile": "profile", "-p": "profile", "--registry": "registry", "--to": "to", "--limit": "limit", "--port": "port"}
+	boolFlags  = map[string]string{"--json": "json", "--yes": "yes", "-y": "yes", "--smoke": "smoke", "--pre": "pre", "--dry-run": "dry-run", "--force": "force", "--help": "help", "-h": "help", "--available": "available", "--no-boot": "no-boot", "--no-open": "no-open"}
 )
 
 func parseArgs(in []string) (*args, error) {

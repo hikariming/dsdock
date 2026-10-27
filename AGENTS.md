@@ -11,7 +11,14 @@ go vet ./... && go test ./...
 DSDOCK_IT_DSH=<dsh 的 lib/bin.js> DSDOCK_IT_NODE=<node> DSDOCK_IT_NETWORK=1 go test ./internal/cli/ -run Integration -v
 ```
 
-改代码之前先读 [LESSONS.md](LESSONS.md) 和 [docs/subsystems/](docs/subsystems/)。所有改动 profile 的操作都必须经过 `internal/txn`。
+改代码之前先读 [LESSONS.md](LESSONS.md) 和 [docs/subsystems/](docs/subsystems/)。所有改动 profile 的操作都必须经过 `internal/txn`；新功能先加到 `internal/core`，CLI（`internal/cli`）和 GUI（`internal/gui`）只做展示。
+
+改了界面，用无头浏览器截图自己看一遍：
+
+```bash
+dsdock gui --no-open --port 38200   # 记下打印的地址
+CHROME=<chromium 或 chrome-headless-shell> node scripts/gui-shots.mjs '<地址>' /tmp/shots steps.json
+```
 
 ## M0 实测
 

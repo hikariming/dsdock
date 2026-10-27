@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>DSDock</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><img src="icon.svg" alt=""><span>DSDock</span></div>
+    <nav class="nav" id="nav">
+      <a href="#/" data-route="home">总览</a>
+      <a href="#/versions" data-route="versions">DSH 版本</a>
+      <a href="#/market" data-route="market">插件市场</a>
+    </nav>
+    <div class="side-title">Profile</div>
+    <nav class="nav profiles" id="profile-nav"></nav>
+    <div class="side-foot" id="side-foot"></div>
+  </aside>
+  <main class="main" id="main"><div class="loading">加载中…</div></main>
+</div>
+<div class="toasts" id="toasts"></div>
+<dialog id="dialog"></dialog>
+<script src="app.js"></script>
+</body>
+</html>

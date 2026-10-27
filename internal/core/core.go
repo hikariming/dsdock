@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"github.com/hikariming/dsdock/internal/appdir"
 	"github.com/hikariming/dsdock/internal/dshenv"
@@ -28,8 +29,9 @@ type Core struct {
 	Store   *snapshot.Store
 	Vers    *versions.Manager
 	Reg     *npmreg.Client
-	// Progress receives short status lines while work runs; it may be nil.
-	Progress func(string)
+
+	mu       sync.Mutex
+	progress func(string)
 }
 
 // Open loads DSDock's data. registry may be empty for the public registry.
@@ -53,16 +55,27 @@ func Open(registry string) (*Core, error) {
 		return nil, err
 	}
 	c := &Core{Home: home, DataDir: dir, Store: store, Vers: vers, Reg: reg}
-	vers.Progress = func(msg string) { c.say(msg) }
+	vers.Progress = c.say
 	return c, nil
 }
 
 // Close releases the database.
 func (c *Core) Close() error { return c.Store.Close() }
 
+// SetProgress sets where short status lines go while work runs (nil
+// discards them). The GUI swaps it per job while other requests read it.
+func (c *Core) SetProgress(f func(string)) {
+	c.mu.Lock()
+	c.progress = f
+	c.mu.Unlock()
+}
+
 func (c *Core) say(msg string) {
-	if c.Progress != nil {
-		c.Progress(msg)
+	c.mu.Lock()
+	f := c.progress
+	c.mu.Unlock()
+	if f != nil {
+		f(msg)
 	}
 }
 
@@ -98,7 +111,7 @@ func (c *Core) EnvFor(profileName string) (*dshenv.Env, string, error) {
 
 // Engine runs changes with env.
 func (c *Core) Engine(env *dshenv.Env) *txn.Engine {
-	return &txn.Engine{Env: env, Store: c.Store, LockDir: filepath.Join(c.DataDir, "locks"), Progress: c.Progress}
+	return &txn.Engine{Env: env, Store: c.Store, LockDir: filepath.Join(c.DataDir, "locks"), Progress: c.say}
 }
 
 // EngineFor resolves a profile's dsh and returns an engine for it.

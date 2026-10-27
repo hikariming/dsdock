@@ -237,6 +237,12 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 | 终端界面 | bubbletea + lipgloss（P2） | 和 Magpie 一样 |
 | 和 JS 通信 | 内嵌一个 `bridge.mjs`，用**目标版本 DSH 对应的 Node** 运行 | 远程客户端是 JS 包；npm 的 semver 规则用 Go 模拟容易出错 |
 
+### 4.1.1 图形界面的落地方式（M2 实际做法）
+
+先做**本机 Web 界面**（`dsdock gui`：Go 内置 HTTP 服务 + 原生 JS 页面，资源打包进二进制），再用 Wails 套原生窗口和托盘，加载同一套页面。原因：Wails 在 macOS 上需要 WebKit 和 CGO，界面效果也必须在 Mac 上看，开发机（Linux）验证不了；Web 界面在任何平台都能开发和测试（`scripts/gui-shots.mjs` 用无头 Chromium 驱动页面并截图）。Magpie 也同时提供 Web UI 模式。
+
+安全：只监听 127.0.0.1；每次运行生成随机令牌，放在 URL 的 `#` 片段里交给页面（不会进入请求和日志）；所有 API 校验令牌、Host（防 DNS 重绑定）和写请求的 Origin；CSP 禁止内联脚本和样式，第三方内容（市场里的描述）一律用 `textContent` 渲染。
+
 ### 4.2 进程模式
 
 同一个二进制，按参数或者被调用时的名字进入不同模式：
@@ -501,7 +507,7 @@ DSDock **不上报任何遥测**。下载量统计只在 dshfind 的服务端看
 |---|---|---|---|
 | **M0 · 验证假设** | 1 周 | 按 [m0-handoff.md](./m0-handoff.md) 在 Linux、Mac、Windows 上逐项实测；搭好仓库骨架和三平台 CI | 每个【待实测】项都有结论；设计文档相应更新 |
 | **M1 · CLI 核心**（已完成。第一波：status/check/add/remove/update/disable/enable/snap/smoke/log；第二波：dsh list/install/use/pin/unpin/which/adopt/uninstall/shim、转发器、PF06/PF07） | 3 周 | dshenv、profile、snapshot、txn、preflight、executor(cli)；`status/check/add/remove/update/snap`；版本目录和转发器；`dsh list/install/use/adopt` | 自己日常用 DSDock；故意装坏插件后能自动回滚 |
-| **M2 · 救援 + GUI** | 3 周 | F6 的诊断和回到上次正常；Wails 托盘和主窗口（总览、Profile、版本、操作记录）；dshfind 数据源；切换版本前预检、一键回退 | 发布已签名的 Mac dmg |
+| **M2 · 救援 + GUI**（M2a 已完成：`dsdock rescue`、`dsdock gui` 浏览器界面、`internal/core` 重构；M2b：Wails 原生窗口和托盘，需要在 Mac 上验证） | 3 周 | F6 的诊断和回到上次正常；Wails 托盘和主窗口（总览、Profile、版本、操作记录）；dshfind 数据源；切换版本前预检、一键回退 | 发布已签名的 Mac dmg |
 | **M3 · Windows + 多版本** | 2 周 | 托盘里一键重启 profile；按 profile 锁定版本；会话格式降级警告；Windows 打包、签名、PATH、Job Object | 发布 Windows 安装包 |
 | **M4 · 分发** | 2 周 | 自动更新；安装脚本和镜像；dshfind 按钮和深链；Dockfile 导入导出 | 新用户从 dshfind 点一下就能装 |
 | **M5 · 差异化** | 持续 | 冲突分析；二分定位；升级指南影响分析；托管 Node 和 pnpm；多机同步；TUI | — |

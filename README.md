@@ -4,7 +4,9 @@
 
 DSDock 不是 DSH 插件，不做聊天界面，也不替代 DSH。它在 DSH 外面工作，所以 DSH 起不来的时候也能把它救回来。
 
-> 🚧 **M1 已完成（命令行）**：插件生命周期（安装、卸载、更新、禁用、快照、回滚、启动测试）和 DSH 版本管理（多版本并存、切换、按 profile 锁定、`dsh` 转发器）都可以用，在 Linux 上对真实的 DSH 做过端到端测试。图形界面还没做；macOS、Windows 的实测在进行中。
+> 🚧 **预览阶段**：命令行和浏览器界面都可以用了——插件生命周期（安装、卸载、更新、禁用、快照、回滚、启动测试）、救援模式、DSH 版本管理（多版本并存、切换、按 profile 锁定、`dsh` 转发器）、插件市场。在 Linux 上对真实的 DSH 做过端到端测试；macOS 原生窗口和托盘（Wails）还在做。[下载 macOS 预览版](https://github.com/hikariming/dsdock/releases)
+
+![总览](docs/images/gui-overview.png)
 
 ## 计划中的功能
 
@@ -14,6 +16,20 @@ DSDock 不是 DSH 插件，不做聊天界面，也不替代 DSH。它在 DSH �
 - **DSH 版本管理**：多个版本并存、一键切换、每个 profile 单独锁定版本、降级前警告
 - **冲突分析**：哪个插件覆盖了哪个插件的配置，你写的覆盖在插件更新后是否已经过时
 - **整合包**：导出、导入、分享一整套插件组合
+
+## 图形界面
+
+```bash
+dsdock gui          # 在本机启动，并用浏览器打开
+```
+
+只监听 `127.0.0.1`，地址里带着这次运行的随机令牌。每个改动都是"先检查 → 你确认 → 执行"，改坏了会自动回滚：
+
+| 插件管理（被重复 id 覆盖、实际不生效的配置会标出来） | 装上就报错的插件：自动回滚 |
+|---|---|
+| ![插件](docs/images/gui-profile.png) | ![回滚](docs/images/gui-rollback.png) |
+| **救援：找出原因，一键回到上一个正常的状态** | **插件市场：数据来自 dshfind，安装前再做一遍检查** |
+| ![救援](docs/images/gui-rescue.png) | ![市场](docs/images/gui-market.png) |
 
 ## 试用（命令行）
 
@@ -30,6 +46,8 @@ go build -o dsdock .
 ./dsdock snap list -p web                        # 快照时间线
 ./dsdock snap restore <快照id>                    # 回到某个时间点（可撤销）
 ./dsdock smoke -p web                            # 启动测试：每个插件都激活了吗？
+./dsdock rescue -p web                           # DSH 出问题了：找原因，一键回到上一个正常的状态
+./dsdock outdated -p web                         # 哪些插件有兼容当前 DSH 的新版本
 ./dsdock help
 ```
 
