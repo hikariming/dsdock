@@ -159,6 +159,12 @@ func (c *Checker) Resolve(ctx context.Context, s Spec) (*Candidate, error) {
 	return cand, nil
 }
 
+// LatestCompatible is the version `add <name>` would pick: the latest tag
+// when dsh accepts it, otherwise the highest compatible version.
+func (c *Checker) LatestCompatible(ctx context.Context, name string) (string, error) {
+	return c.pickVersion(ctx, Spec{Kind: NPM, Name: name, Raw: name})
+}
+
 // pickVersion resolves a dist-tag, range or nothing to one exact version.
 // Exact versions are returned as given so PF02 can refuse them explicitly.
 func (c *Checker) pickVersion(ctx context.Context, s Spec) (string, error) {

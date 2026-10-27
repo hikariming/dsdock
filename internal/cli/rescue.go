@@ -13,7 +13,7 @@ func (ap *app) cmdRescue(ctx context.Context, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := ap.loadProfileIn(ap.home); err != nil {
+	if _, err := ap.core.LoadProfile(name); err != nil {
 		return err
 	}
 	ap.printf("诊断 %s …\n", name)

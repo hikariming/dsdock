@@ -2,13 +2,11 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
-	"github.com/hikariming/dsdock/internal/proc"
-	"github.com/hikariming/dsdock/internal/profile"
+	"github.com/hikariming/dsdock/internal/core"
 	"github.com/hikariming/dsdock/internal/shim"
 	"github.com/hikariming/dsdock/internal/versions"
 )
@@ -17,6 +15,7 @@ func (ap *app) cmdDSH(ctx context.Context, rest []string) error {
 	if len(rest) == 0 {
 		return usageError("用法：dsdock dsh list|install|use|pin|unpin|which|adopt|uninstall|shim")
 	}
+	vers := ap.core.Vers
 	sub, args := rest[0], rest[1:]
 	switch sub {
 	case "list", "ls":
@@ -30,30 +29,34 @@ func (ap *app) cmdDSH(ctx context.Context, rest []string) error {
 		if len(args) != 1 {
 			return usageError("用法：dsdock dsh use <版本>")
 		}
-		return ap.dshUse(ctx, args[0])
+		return ap.dshSwitch(ctx, args[0], "")
 	case "pin":
 		if len(args) != 1 {
 			return usageError("用法：dsdock dsh pin <版本> -p <profile>")
 		}
-		return ap.dshPin(ctx, args[0])
+		name, err := ap.profileName()
+		if err != nil {
+			return err
+		}
+		return ap.dshSwitch(ctx, args[0], name)
 	case "unpin":
 		name, err := ap.profileName()
 		if err != nil {
 			return err
 		}
-		if err := ap.vers.Unpin(ap.home, name); err != nil {
+		if err := vers.Unpin(ap.home, name); err != nil {
 			return err
 		}
 		ap.printf("✓ %s 不再固定版本，跟随默认版本\n", name)
 		return nil
 	case "which":
-		return ap.dshWhich()
+		return ap.dshWhich(ctx)
 	case "adopt":
 		path := ""
 		if len(args) == 1 {
 			path = args[0]
 		}
-		inst, err := ap.vers.Adopt(ctx, path, ap.shimDir())
+		inst, err := vers.Adopt(ctx, path, ap.core.ShimDir())
 		if err != nil {
 			return err
 		}
@@ -62,7 +65,7 @@ func (ap *app) cmdDSH(ctx context.Context, rest []string) error {
 			return nil
 		}
 		fmt.Fprintf(ap.out, "✓ 已接管 DSH %s（%s），名字是 %q。原来的安装没有移动、也没有删除\n", inst.Version, inst.Dir, versions.External)
-		if def, _ := ap.vers.Default(); def == "" {
+		if def, _ := vers.Default(); def == "" {
 			fmt.Fprintln(ap.out, "  没有设置默认版本时，DSDock 会用它")
 		}
 		return nil
@@ -70,33 +73,34 @@ func (ap *app) cmdDSH(ctx context.Context, rest []string) error {
 		if len(args) != 1 {
 			return usageError("用法：dsdock dsh uninstall <版本>")
 		}
-		if err := ap.vers.Uninstall(args[0]); err != nil {
+		if err := vers.Uninstall(args[0]); err != nil {
 			return err
 		}
 		ap.printf("✓ 已卸载 DSH %s\n", args[0])
 		return nil
 	case "shim":
-		p, err := shim.Install(ap.shimDir())
+		p, err := shim.Install(ap.core.ShimDir())
 		if err != nil {
 			return err
 		}
 		if ap.a.is("json") {
-			ap.json(map[string]string{"shim": p, "dir": ap.shimDir()})
+			ap.json(map[string]string{"shim": p, "dir": ap.core.ShimDir()})
 			return nil
 		}
-		fmt.Fprintf(ap.out, "✓ 转发器已写入 %s\n%s\n", p, shim.PathHint(ap.shimDir()))
+		fmt.Fprintf(ap.out, "✓ 转发器已写入 %s\n%s\n", p, shim.PathHint(ap.core.ShimDir()))
 		return nil
 	}
 	return usageError(fmt.Sprintf("未知的 dsh 子命令 %q", sub))
 }
 
 func (ap *app) dshList(ctx context.Context) error {
-	installed, err := ap.vers.List()
+	vers := ap.core.Vers
+	installed, err := vers.List()
 	if err != nil {
 		return err
 	}
-	def, _ := ap.vers.Default()
-	pins, _ := ap.vers.Pins("")
+	def, _ := vers.Default()
+	pins, _ := vers.Pins("")
 	pinned := map[string][]string{}
 	for _, p := range pins {
 		if p.Home == ap.home {
@@ -105,7 +109,7 @@ func (ap *app) dshList(ctx context.Context) error {
 	}
 	var avail []versions.Release
 	if ap.a.is("available") || ap.a.is("pre") {
-		if avail, err = ap.vers.Available(ctx); err != nil {
+		if avail, err = vers.Available(ctx); err != nil {
 			return err
 		}
 	}
@@ -143,17 +147,15 @@ func (ap *app) dshList(ctx context.Context) error {
 			if r.Deprecated || (!ap.a.is("pre") && len(r.Tags) == 0 && shown >= 8) {
 				continue
 			}
-			tags := ""
+			tags, done := "", ""
 			if len(r.Tags) > 0 {
 				tags = "  [" + strings.Join(r.Tags, ", ") + "]"
 			}
-			done := ""
 			if r.Installed {
 				done = "  已安装"
 			}
 			fmt.Fprintf(ap.out, "  %-16s %s%s%s\n", r.Version, r.Published.Local().Format("2006-01-02"), tags, done)
-			shown++
-			if shown >= 15 {
+			if shown++; shown >= 15 {
 				break
 			}
 		}
@@ -162,14 +164,15 @@ func (ap *app) dshList(ctx context.Context) error {
 }
 
 func (ap *app) dshInstall(ctx context.Context, want string) error {
-	inst, fresh, err := ap.vers.Install(ctx, want)
+	vers := ap.core.Vers
+	inst, fresh, err := vers.Install(ctx, want)
 	if err != nil {
 		return err
 	}
-	def, _ := ap.vers.Default()
+	def, _ := vers.Default()
 	madeDefault := false
 	if def == "" {
-		if err := ap.vers.SetDefault(inst.Name); err != nil {
+		if err := vers.SetDefault(inst.Name); err != nil {
 			return err
 		}
 		madeDefault = true
@@ -184,106 +187,61 @@ func (ap *app) dshInstall(ctx context.Context, want string) error {
 		fmt.Fprintf(ap.out, "DSH %s 已经装过了\n", inst.Version)
 	}
 	if madeDefault {
-		fmt.Fprintf(ap.out, "  已设为默认版本。要在终端里直接用 dsh，运行 dsdock dsh shim\n")
+		fmt.Fprintln(ap.out, "  已设为默认版本。要在终端里直接用 dsh，运行 dsdock dsh shim")
 	} else if def != inst.Name {
 		fmt.Fprintf(ap.out, "  切换过去：dsdock dsh use %s\n", inst.Name)
 	}
 	return nil
 }
 
-// ensure returns an installed release, installing a version or channel
-// first when needed.
-func (ap *app) ensure(ctx context.Context, name string) (*versions.Installed, error) {
-	inst, err := ap.vers.Get(name)
-	if err == nil {
-		return inst, nil
-	}
-	if !errors.Is(err, versions.ErrNotInstalled) || name == versions.External {
-		return nil, err
-	}
-	ap.printf("DSH %s 还没有安装，先安装\n", name)
-	inst, _, err = ap.vers.Install(ctx, name)
-	return inst, err
-}
-
-func (ap *app) dshUse(ctx context.Context, name string) error {
-	to, err := ap.ensure(ctx, name)
+// dshSwitch is `use` (profileName empty) or `pin`.
+func (ap *app) dshSwitch(ctx context.Context, name, profileName string) error {
+	inst, installed, err := ap.core.Ensure(ctx, name)
 	if err != nil {
 		return err
 	}
-	from, _, err := ap.vers.Resolve(ap.home, "")
-	if err != nil && !errors.Is(err, versions.ErrNoVersion) {
-		return err
+	if installed {
+		ap.printf("✓ 已安装 DSH %s\n", inst.Version)
 	}
-	if from != nil && from.Name == to.Name {
-		ap.printf("默认版本已经是 %s\n", to.Name)
-		return nil
+	var plan *core.SwitchPlan
+	if profileName == "" {
+		plan, err = ap.core.PlanUse(ctx, inst.Name)
+	} else {
+		plan, err = ap.core.PlanPin(ctx, profileName, inst.Name)
 	}
-	// Profiles with a pin keep their release; everything else follows the
-	// default and is what this switch affects.
-	all, err := profile.List(ap.home)
 	if err != nil {
 		return err
 	}
-	var affected []*profile.Profile
-	for _, p := range all {
-		if pin, _ := ap.vers.PinOf(ap.home, p.Name); pin == "" {
-			affected = append(affected, p)
+	if plan.Same {
+		if profileName == "" {
+			ap.printf("默认版本已经是 %s\n", inst.Name)
+		} else {
+			ap.printf("%s 已经固定在 %s\n", profileName, inst.Name)
 		}
+		return nil
 	}
-	report, err := versions.Precheck(ctx, ap.home, affected, from, to)
-	if err != nil {
-		return err
-	}
-	ap.printSwitch(report)
-	if report.Problems() && !ap.confirm("仍然切换吗？") {
+	ap.printSwitch(plan.Report)
+	if plan.NeedsConfirmation() && !ap.confirm(map[bool]string{true: "仍然切换吗？", false: "仍然固定到这个版本吗？"}[profileName == ""]) {
 		return exitError(5)
 	}
-	if err := ap.vers.SetDefault(to.Name); err != nil {
+	if err := plan.Apply(); err != nil {
 		return err
 	}
 	if ap.a.is("json") {
-		ap.json(report)
+		ap.json(plan.Report)
 		return nil
 	}
-	fmt.Fprintf(ap.out, "✓ 默认版本：%s\n", to.Name)
-	if from != nil {
-		fmt.Fprintf(ap.out, "  撤销：dsdock dsh use %s\n", from.Name)
+	if profileName == "" {
+		fmt.Fprintf(ap.out, "✓ 默认版本：%s\n", inst.Name)
+		if plan.Report.From != "" {
+			fmt.Fprintf(ap.out, "  撤销：dsdock dsh use %s\n", plan.Report.From)
+		}
+	} else {
+		fmt.Fprintf(ap.out, "✓ %s 固定使用 DSH %s（撤销：dsdock dsh unpin -p %s）\n", profileName, inst.Name, profileName)
 	}
-	ap.warnRunning(ctx, affected)
-	return nil
-}
-
-func (ap *app) dshPin(ctx context.Context, name string) error {
-	p, err := ap.loadProfileIn(ap.home)
-	if err != nil {
-		return err
+	for _, r := range ap.core.Running(ctx, plan.Affected()) {
+		fmt.Fprintf(ap.out, "  ↻ %s 正在运行（PID %d），重启后才会换成新版本\n", r.Profile, r.PID)
 	}
-	to, err := ap.ensure(ctx, name)
-	if err != nil {
-		return err
-	}
-	from, _, err := ap.vers.Resolve(ap.home, p.Name)
-	if err != nil && !errors.Is(err, versions.ErrNoVersion) {
-		return err
-	}
-	report, err := versions.Precheck(ctx, ap.home, []*profile.Profile{p}, from, to)
-	if err != nil {
-		return err
-	}
-	ap.printSwitch(report)
-	if report.Problems() && !ap.confirm("仍然固定到这个版本吗？") {
-		return exitError(5)
-	}
-	if err := ap.vers.Pin(ap.home, p.Name, to.Name); err != nil {
-		return err
-	}
-	if ap.a.is("json") {
-		ap.json(report)
-		return nil
-	}
-	fmt.Fprintf(ap.out, "✓ %s 固定使用 DSH %s（撤销：dsdock dsh unpin -p %s）\n", p.Name, to.Name, p.Name)
-	ap.warnRunning(ctx, []*profile.Profile{p})
 	return nil
 }
 
@@ -308,12 +266,7 @@ func (ap *app) printSwitch(r *versions.SwitchReport) {
 			continue
 		}
 		fmt.Fprintf(ap.out, "  ✗ %s\n", pc.Profile)
-		skipped := make([]string, 0, len(pc.Skipped))
-		for b := range pc.Skipped {
-			skipped = append(skipped, b)
-		}
-		sort.Strings(skipped)
-		for _, b := range skipped {
+		for _, b := range sortedKeys(pc.Skipped) {
 			fmt.Fprintf(ap.out, "      %s 会被 DSH 跳过：%s\n", b, pc.Skipped[b])
 		}
 		names := make([]string, 0, len(pc.Incompatible))
@@ -333,26 +286,13 @@ func (ap *app) printSwitch(r *versions.SwitchReport) {
 	}
 }
 
-func (ap *app) warnRunning(ctx context.Context, ps []*profile.Profile) {
-	running, _ := proc.FindRunning(ctx)
-	names := map[string]bool{}
-	for _, p := range ps {
-		names[p.Name] = true
-	}
-	for _, r := range running {
-		if names[r.Profile] {
-			fmt.Fprintf(ap.out, "  ↻ %s 正在运行（PID %d），重启后才会换成新版本\n", r.Profile, r.PID)
-		}
-	}
-}
-
-func (ap *app) dshWhich() error {
+func (ap *app) dshWhich(ctx context.Context) error {
 	name := ap.a.str("profile")
-	env, why, err := ap.envFor(name)
+	env, why, err := ap.core.EnvFor(name)
 	if err != nil {
 		return err
 	}
-	ver, _ := env.Version(context.Background())
+	ver, _ := env.Version(ctx)
 	if ap.a.is("json") {
 		ap.json(map[string]string{"profile": name, "version": ver, "entry": env.Entry, "reason": why})
 		return nil
@@ -365,21 +305,11 @@ func (ap *app) dshWhich() error {
 	return nil
 }
 
-// sourceText explains where a dsh came from.
-var sourceText = map[string]string{
-	versions.ByPin: "这个 profile 固定了版本", versions.ByDefault: "默认版本",
-	versions.ByExternal: "接管的外部安装", versions.ByEnv: "环境变量 DSDOCK_DSH_VERSION",
-	"DSDOCK_DSH": "环境变量 DSDOCK_DSH", "PATH": "PATH 里的 dsh，DSDock 还没有管理任何版本",
-}
-
-func (ap *app) loadProfileIn(home string) (*profile.Profile, error) {
-	name, err := ap.profileName()
-	if err != nil {
-		return nil, err
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
-	p, err := profile.Load(home, name)
-	if errors.Is(err, profile.ErrNotExist) {
-		return nil, fmt.Errorf("profile %s 不存在", name)
-	}
-	return p, err
+	sort.Strings(out)
+	return out
 }

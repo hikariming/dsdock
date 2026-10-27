@@ -1,4 +1,5 @@
-// Package cli implements the dsdock command line.
+// Package cli implements the dsdock command line as a thin shell over
+// internal/core.
 package cli
 
 import (
@@ -10,19 +11,14 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/hikariming/dsdock/internal/appdir"
+	"github.com/hikariming/dsdock/internal/core"
 	"github.com/hikariming/dsdock/internal/dshenv"
-	"github.com/hikariming/dsdock/internal/npmreg"
 	"github.com/hikariming/dsdock/internal/proc"
-	"github.com/hikariming/dsdock/internal/profile"
-	"github.com/hikariming/dsdock/internal/snapshot"
 	"github.com/hikariming/dsdock/internal/txn"
-	"github.com/hikariming/dsdock/internal/versions"
 )
 
 // Version is set at build time.
@@ -32,8 +28,12 @@ const usage = `DSDock：DeepSeek Harness 的外部管理器
 
 用法：dsdock <命令> [参数] [选项]
 
+图形界面
+  gui                        在浏览器里打开 DSDock（--port <端口> 固定端口，--no-open 不自动打开）
+
 查看
   status                     DSH 环境和所有 profile 的健康状态
+  outdated -p <profile>      有哪些插件可以更新（只列兼容当前 DSH 的版本）
   check <规格> -p <profile>   只做装前检查，不安装
   log -p <profile>           操作记录
 
@@ -90,18 +90,15 @@ func Main(argv []string) int {
 }
 
 type app struct {
-	a       *args
-	out     io.Writer
-	errw    io.Writer
-	in      io.Reader
-	dataDir string
-	home    string // DSH_HOME
-	env     *dshenv.Env
-	envWhy  string // where env came from, for status and which
-	store   *snapshot.Store
-	engine  *txn.Engine
-	reg     *npmreg.Client
-	vers    *versions.Manager
+	a      *args
+	out    io.Writer
+	errw   io.Writer
+	in     io.Reader
+	core   *core.Core
+	home   string
+	env    *dshenv.Env // for commands that work on one profile
+	envWhy string
+	engine *txn.Engine
 }
 
 func run(ctx context.Context, argv []string, out, errw io.Writer, in io.Reader) int {
@@ -155,98 +152,49 @@ func (ap *app) dispatch(ctx context.Context) error {
 	cmd, rest := ap.a.pos[0], ap.a.pos[1:]
 	type handler struct {
 		run     func(context.Context, []string) error
-		needEnv bool // resolves a dsh to run before the command starts
+		needEnv bool // resolves the profile's dsh before the command starts
 	}
 	handlers := map[string]handler{
-		"status":  {ap.cmdStatus, false},
-		"check":   {ap.cmdCheck, true},
-		"add":     {ap.cmdAdd, true},
-		"remove":  {ap.cmdRemove, true},
-		"update":  {ap.cmdUpdate, true},
-		"disable": {func(ctx context.Context, r []string) error { return ap.cmdToggle(ctx, r, true) }, true},
-		"enable":  {func(ctx context.Context, r []string) error { return ap.cmdToggle(ctx, r, false) }, true},
-		"snap":    {ap.cmdSnap, true},
-		"smoke":   {ap.cmdSmoke, true},
-		"rescue":  {ap.cmdRescue, true},
-		"log":     {ap.cmdLog, false},
-		"dsh":     {ap.cmdDSH, false},
+		"status":   {ap.cmdStatus, false},
+		"outdated": {ap.cmdOutdated, false},
+		"check":    {ap.cmdCheck, false},
+		"add":      {ap.cmdAdd, false},
+		"remove":   {ap.cmdRemove, false},
+		"update":   {ap.cmdUpdate, false},
+		"disable":  {func(ctx context.Context, r []string) error { return ap.cmdToggle(ctx, r, true) }, false},
+		"enable":   {func(ctx context.Context, r []string) error { return ap.cmdToggle(ctx, r, false) }, false},
+		"snap":     {ap.cmdSnap, true},
+		"smoke":    {ap.cmdSmoke, true},
+		"rescue":   {ap.cmdRescue, true},
+		"log":      {ap.cmdLog, false},
+		"dsh":      {ap.cmdDSH, false},
+		"gui":      {ap.cmdGUI, false},
 	}
 	h, ok := handlers[cmd]
 	if !ok {
 		return usageError(fmt.Sprintf("未知命令 %q，运行 dsdock help 查看用法", cmd))
 	}
-	if err := ap.open(); err != nil {
+	c, err := core.Open(ap.a.str("registry"))
+	if err != nil {
 		return err
 	}
+	ap.core, ap.home = c, c.Home
+	if !ap.a.is("json") {
+		c.Progress = func(msg string) { fmt.Fprintln(ap.errw, "  ·", msg) }
+	}
 	if h.needEnv {
-		env, why, err := ap.envFor(ap.a.str("profile"))
+		env, why, err := c.EnvFor(ap.a.str("profile"))
 		if err != nil {
 			return err
 		}
-		ap.env, ap.envWhy, ap.engine = env, why, ap.engineFor(env)
+		ap.env, ap.envWhy, ap.engine = env, why, c.Engine(env)
 	}
 	return h.run(ctx, rest)
 }
 
-func (ap *app) open() error {
-	dir, err := appdir.Dir()
-	if err != nil {
-		return err
-	}
-	home, err := dshenv.Home()
-	if err != nil {
-		return err
-	}
-	store, err := snapshot.Open(dir)
-	if err != nil {
-		return err
-	}
-	ap.dataDir, ap.home, ap.store = dir, home, store
-	ap.reg = npmreg.New(ap.a.str("registry"))
-	ap.vers, err = versions.Open(store.DB(), filepath.Join(dir, "versions"), ap.reg)
-	if err != nil {
-		return err
-	}
-	if !ap.a.is("json") {
-		ap.vers.Progress = func(msg string) { fmt.Fprintln(ap.errw, "  ·", msg) }
-	}
-	return nil
-}
-
-func (ap *app) shimDir() string { return filepath.Join(ap.dataDir, "bin") }
-
-// envFor picks the dsh that works on a profile (which may be empty):
-// DSDOCK_DSH when set, else the release DSDock resolves (pin, default,
-// adopted), else the dsh on PATH that is not DSDock's own shim.
-func (ap *app) envFor(profileName string) (*dshenv.Env, string, error) {
-	if os.Getenv("DSDOCK_DSH") != "" {
-		env, err := dshenv.Discover(ap.shimDir())
-		return env, "DSDOCK_DSH", err
-	}
-	inst, why, err := ap.vers.Resolve(ap.home, profileName)
-	switch {
-	case err == nil:
-		env, err := inst.Env(ap.home)
-		return env, why, err
-	case errors.Is(err, versions.ErrNoVersion):
-		env, err := dshenv.Discover(ap.shimDir())
-		return env, "PATH", err
-	default:
-		return nil, "", err
-	}
-}
-
-func (ap *app) engineFor(env *dshenv.Env) *txn.Engine {
-	e := &txn.Engine{Env: env, Store: ap.store, LockDir: filepath.Join(ap.dataDir, "locks")}
-	if !ap.a.is("json") {
-		e.Progress = func(msg string) { fmt.Fprintln(ap.errw, "  ·", msg) }
-	}
-	return e
-}
-
 func (ap *app) close() {
-	if ap.store != nil {
-		ap.store.Close()
+	if ap.core != nil {
+		ap.core.Close()
 	}
 }
 
@@ -255,19 +203,7 @@ func (ap *app) profileName() (string, error) {
 	if name == "" {
 		return "", usageError("需要用 -p <profile> 指定 profile")
 	}
-	return name, profile.ValidName(name)
-}
-
-func (ap *app) loadProfile() (*profile.Profile, error) {
-	name, err := ap.profileName()
-	if err != nil {
-		return nil, err
-	}
-	p, err := profile.Load(ap.home, name)
-	if errors.Is(err, profile.ErrNotExist) {
-		return nil, fmt.Errorf("profile %s 不存在（%s）。\n  新建 profile：dsh plugin --profile %s add <包>\n  （只有 web 等官方模板名会自带 Web 界面；其它名字想要 Web，用 dsh --profile %s --from-default-profile web）", name, profile.Dir(ap.home, name), name, name)
-	}
-	return p, err
+	return name, nil
 }
 
 func (ap *app) json(v any) {
