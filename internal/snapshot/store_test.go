@@ -170,3 +170,21 @@ func TestOps(t *testing.T) {
 		t.Fatalf("ops = %+v, %v", ops, err)
 	}
 }
+
+func TestLastGoodOther(t *testing.T) {
+	s, home := setup(t)
+	older, _ := s.Take(home, "web", "older", "", false)
+	s.MarkVerified(older.ID, "good")
+	cur, _ := s.Take(home, "web", "current", "", false)
+	s.MarkVerified(cur.ID, "broken-at-boot")
+	got, err := s.LastGoodOther(home, "web", "broken-at-boot")
+	if err != nil || got == nil || got.ID != older.ID {
+		t.Fatalf("LastGoodOther = %+v, %v", got, err)
+	}
+	if got, _ := s.LastGoodOther(home, "web", ""); got == nil || got.ID != cur.ID {
+		t.Fatalf("with no current hash = %+v", got)
+	}
+	if got, _ := s.LastGoodOther(home, "web", "good"); got == nil || got.ID != cur.ID {
+		t.Fatalf("skipping the current hash = %+v", got)
+	}
+}

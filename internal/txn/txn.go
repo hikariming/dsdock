@@ -159,7 +159,7 @@ func (e *Engine) Run(ctx context.Context, ch Change, opt Options) (*Outcome, err
 		return finish(snapshot.OpFailed)
 	}
 	if !base.OK {
-		out.Warnings = append(out.Warnings, "改动之前这个 profile 就无法组装："+firstLine(base.Result.Stderr))
+		out.Warnings = append(out.Warnings, "改动之前这个 profile 就无法组装："+ErrorLine(base.Result.Stderr))
 	}
 
 	e.say("拍快照")
@@ -377,6 +377,20 @@ func logRun(log *strings.Builder, r *dshenv.Result) {
 		return
 	}
 	fmt.Fprintf(log, "$ dsh %s  (exit %d, %s)\n%s%s", strings.Join(r.Args, " "), r.ExitCode, r.Duration.Round(time.Millisecond), r.Stdout, r.Stderr)
+}
+
+// ErrorLine picks the line of dsh's stderr that says what went wrong. A
+// crash starts with a stack location ("file:///…/index.js:3998"), which
+// means nothing to a user; the "Error: …" line further down does.
+func ErrorLine(stderr string) string {
+	lines := strings.Split(redact.Text(stderr), "\n")
+	for _, l := range lines {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "Error: ") || strings.HasPrefix(t, "dsh: ") || strings.Contains(t, "Error: dsh:") {
+			return t
+		}
+	}
+	return firstLine(stderr)
 }
 
 func firstLine(s string) string {

@@ -170,6 +170,34 @@ func TestIntegrationLifecycle(t *testing.T) {
 		}
 	})
 
+	t.Run("rescue a plugin installed behind DSDock's back", func(t *testing.T) {
+		before := e.bundles("web")
+		e.dsh("plugin", "--profile", "web", "add", e.fixture("fx-broken"))
+		code, out := e.dsdock("rescue", "-p", "web")
+		e.expect(code, out, 7, "fx-broken", "没有激活", "需要确认")
+		code, out = e.dsdock("rescue", "-p", "web", "--yes")
+		e.expect(code, out, 0, "完成")
+		if got := e.bundles("web"); !reflect.DeepEqual(got, before) {
+			t.Fatalf("bundles after rescue = %v, want %v", got, before)
+		}
+	})
+
+	t.Run("rescue a hand-broken patch file", func(t *testing.T) {
+		path := filepath.Join(e.home, "profiles", "web", "cordis.patch.yml")
+		orig, _ := os.ReadFile(path)
+		broken := append(append([]byte{}, orig...), []byte("- id: fx-ok\n  disabled: true\n")...)
+		if err := os.WriteFile(path, broken, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		code, out := e.dsdock("rescue", "-p", "web", "--no-boot", "--yes")
+		e.expect(code, out, 0, "无法读取", "line")
+		if b, _ := os.ReadFile(path); string(b) != string(orig) {
+			t.Fatalf("patch after rescue:\n%s", b)
+		}
+		code, out = e.dsdock("rescue", "-p", "web")
+		e.expect(code, out, 0, "没有发现问题")
+	})
+
 	t.Run("smoke", func(t *testing.T) {
 		code, out := e.dsdock("smoke", "-p", "web")
 		e.expect(code, out, 0, "所有插件都已激活")

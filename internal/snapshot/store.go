@@ -199,6 +199,18 @@ func (s *Store) LastVerified(home, name string) (*Snapshot, error) {
 	return snaps[0], nil
 }
 
+// LastGoodOther is the newest verified snapshot whose composition differs
+// from currentHash. The newest verified snapshot is often the current state
+// itself: it composed fine and only fails when booted, so rescue must look
+// further back. An empty currentHash returns LastVerified.
+func (s *Store) LastGoodOther(home, name, currentHash string) (*Snapshot, error) {
+	snaps, err := s.query(`WHERE dsh_home = ? AND profile = ? AND verified = 1 AND dump_hash != ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, home, name, currentHash)
+	if err != nil || len(snaps) == 0 {
+		return nil, err
+	}
+	return snaps[0], nil
+}
+
 func (s *Store) query(where string, args ...any) ([]*Snapshot, error) {
 	rows, err := s.db.Query(`SELECT id, dsh_home, profile, reason, created_at, dsh_version, manual, verified, dump_hash FROM snapshots `+where, args...)
 	if err != nil {

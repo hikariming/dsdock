@@ -51,6 +51,8 @@ const usage = `DSDock：DeepSeek Harness 的外部管理器
 
 诊断
   smoke -p <profile>         真正启动一次 profile，检查每个插件是否激活
+  rescue -p <profile>        DSH 出问题时用：找出原因，可以一键回到上一个正常的状态
+                             （--no-boot 只做快速检查，不启动）
 
 DSH 版本
   dsh list [--available]     已安装的版本；--available 列出可以安装的版本
@@ -165,6 +167,7 @@ func (ap *app) dispatch(ctx context.Context) error {
 		"enable":  {func(ctx context.Context, r []string) error { return ap.cmdToggle(ctx, r, false) }, true},
 		"snap":    {ap.cmdSnap, true},
 		"smoke":   {ap.cmdSmoke, true},
+		"rescue":  {ap.cmdRescue, true},
 		"log":     {ap.cmdLog, false},
 		"dsh":     {ap.cmdDSH, false},
 	}
