@@ -262,6 +262,11 @@ func TestFindBinJS(t *testing.T) {
 	bin := filepath.Join(root, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
 	os.MkdirAll(filepath.Dir(bin), 0o755)
 	os.WriteFile(bin, []byte(""), 0o644)
+	// findBinJS resolves symlinks, and temp dirs are not canonical everywhere
+	// (/var -> /private/var on macOS, 8.3 short names on Windows).
+	if real, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = real
+	}
 	// Windows npm prefix: dsh.cmd next to node_modules.
 	if got, err := findBinJS(filepath.Join(root, "dsh.cmd")); err != nil || got != bin {
 		t.Errorf("from .cmd shim: %q, %v", got, err)

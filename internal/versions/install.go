@@ -328,6 +328,9 @@ func findBinJS(p string) (string, error) {
 		filepath.Join(dir, "..", "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
 	} {
 		if _, err := os.Stat(c); err == nil {
+			if real, err := filepath.EvalSymlinks(c); err == nil {
+				return real, nil // the same canonical form as the branch above
+			}
 			return filepath.Clean(c), nil
 		}
 	}
