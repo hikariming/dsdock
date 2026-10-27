@@ -1,0 +1,13 @@
+# 子系统
+
+改动某个子系统的代码之前，先读它的说明，再看链接的源码。
+
+| 子系统 | 包 | 说明 |
+|---|---|---|
+| 事务 | `internal/txn` | [txn.md](./txn.md)：所有改动 profile 的操作的唯一入口 |
+| 组装结果解析 | `internal/layer` | 解析 `--dump-config` 输出和 DSH 的 stderr 警告；格式见设计文档 K8、K20 |
+| 快照 | `internal/snapshot` | 内容寻址的文件存储加 sqlite 元数据；设计文档 §4.5 |
+| 装前检查 | `internal/preflight` | 规则 PFxx；兼容性判断移植自 DSH，见 LESSONS 第 6 条 |
+| 用户层编辑 | `internal/userpatch` | 禁用和启用；语义照搬官方插件管理器，见 LESSONS 第 4 条 |
+| 进程 | `internal/proc` | 启动测试、进程组、查找运行中的 DSH；见 LESSONS 第 1、2 条 |
+| DSH 环境 | `internal/dshenv` | 唯一启动 dsh 的地方 |

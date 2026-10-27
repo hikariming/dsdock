@@ -1,0 +1,9 @@
+{
+  "name": "fx-incompat",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "files": ["index.js", "cordis.patch.yml"],
+  "engines": { "dsh": ">=99.0.0" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

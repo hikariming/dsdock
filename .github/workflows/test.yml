@@ -1,0 +1,51 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - name: gofmt
+        if: runner.os == 'Linux'
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+  # Drives a real dsh in a throwaway DSH_HOME. See internal/cli/integration_test.go.
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dsh: [latest, next]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install -g pnpm
+      - name: Install dsh@${{ matrix.dsh }}
+        run: |
+          npm install --prefix "$RUNNER_TEMP/dsh" "@deepseek-ai/dsh@${{ matrix.dsh }}" --no-audit --no-fund
+          node "$RUNNER_TEMP/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js" -V
+      - name: Integration tests
+        env:
+          DSDOCK_IT_NETWORK: "1"
+        run: |
+          export DSDOCK_IT_DSH="$RUNNER_TEMP/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js"
+          go test ./internal/cli/ -run Integration -count=1 -v

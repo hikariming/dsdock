@@ -1,0 +1,7 @@
+dsh: warning: 1 entry did not activate
+fx-broken (fx-broken): Error: fx-broken: boom on apply
+    at new apply (file:///W/fixtures/fx-broken/index.js:3:9)
+    at Fiber.execute (file:///W/versions/rc4/node_modules/@deepseek-ai/cordis/lib/index.js:1068:24)
+    at file:///W/versions/rc4/node_modules/@deepseek-ai/cordis/lib/index.js:1142:34
+    at file:///DSH_HOME/profiles/t2/#fx-broken
+    at file:///DSH_HOME/profiles/t2/#include

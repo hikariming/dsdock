@@ -1,6 +1,19 @@
 # Notes for coding agents
 
-本项目目前处于 **M0 · 验证假设** 阶段，还没有产品代码。
+本项目处于 **M1**：插件生命周期的命令行已经可用；M0 的 macOS 和 Windows 实测还在进行。
+
+## 构建和测试
+
+```bash
+go build -o dsdock .
+go vet ./... && go test ./...
+# 对真实 DSH 跑集成测试（需要 Node ≥ 24.9 和 pnpm）：
+DSDOCK_IT_DSH=<dsh 的 lib/bin.js> DSDOCK_IT_NODE=<node> DSDOCK_IT_NETWORK=1 go test ./internal/cli/ -run Integration -v
+```
+
+改代码之前先读 [LESSONS.md](LESSONS.md) 和 [docs/subsystems/](docs/subsystems/)。所有改动 profile 的操作都必须经过 `internal/txn`。
+
+## M0 实测
 
 - 如果你被要求做 M0 实测：读 [docs/m0-handoff.md](docs/m0-handoff.md)，严格遵守第 1 节的安全规则，结果写到 `docs/m0-results/<平台>.md`，并更新手册末尾的"接力进度"表。
 - 修改设计之前，先读 [docs/design.zh-CN.md](docs/design.zh-CN.md)。实测结论推翻了某条【待实测】假设时，要同步更新设计文档 §2 的"状态"一列，以及受影响的章节。
