@@ -10,13 +10,13 @@ import (
 
 const createNewProcessGroup = 0x00000200
 
-func newGroup(cmd *exec.Cmd) {
+func NewGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup}
 }
 
-// killGroup ends the process and its children. A Job Object would be more
+// KillGroup ends the process and its children. A Job Object would be more
 // precise; this is enough until the Windows M0 results are in.
-func killGroup(cmd *exec.Cmd) {
+func KillGroup(cmd *exec.Cmd) {
 	if cmd.Process == nil {
 		return
 	}

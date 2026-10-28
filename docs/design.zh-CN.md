@@ -219,6 +219,16 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 
 > 目标版本使用会话格式 v{旧}，当前版本是 v{新}。你在新版本里创建或继续过的会话，旧版本打不开。更早的会话还保留着旧格式的原文件，可以看，但新版本里聊过的部分看不到。
 
+### F12 快速提问（第二版新增）
+
+在菜单栏面板里输入一句话，DSH 在后台完成，比如找文件、启动容器。
+
+- 用 `dsh --profile headless --json` 运行；通过 `--patch` 覆盖层恢复凭据读取（headless 默认不读 DSH web 里保存的 key），并注入授权桥接插件。
+- DSH 默认在只读沙箱里执行命令；要做更多事时，模型会申请 `workspace-write` 或 `danger-full-access`。headless 本身没有应答者，这类请求会被静默拒绝；DSDock 的插件把请求转给面板，**显示具体命令和理由，由用户允许一次或拒绝**。需要授权时面板会自动弹出；10 分钟无人回答按拒绝处理。
+- 协议：插件往 stderr 写 `dsdock:approval {id,toolName,callId,reason}`，DSDock 往它的 stdin 写 `{id,outcome}`。不开网络端口。用 `callId` 和 `--json` 事件流里的 `tool_call` 对上，拿到具体命令。
+- 会话存在 `$DSH_HOME/sessions`，DSH web 的侧边栏里能看到（不在某个工作区时归入"Ungrouped"）。在面板里可以用 `--session-id` 追问。
+- 已验证：用本地的假 Anthropic 接口（覆盖 `llm-deepseek` 的 `baseURL`）配合真实 DSH 跑完"请求授权 → 允许或拒绝 → 回答"的全流程，并确认 DSH web 侧边栏能看到这些会话（`internal/quick` 集成测试）。
+
 ---
 
 ## 4. 技术架构

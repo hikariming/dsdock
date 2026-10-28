@@ -47,6 +47,7 @@ type PluginRow struct {
 type ProfileStatus struct {
 	Name       string            `json:"name"`
 	Web        bool              `json:"web"`
+	Template   bool              `json:"template"` // one dsh ships, not one the user made
 	Plugins    []Plugin          `json:"plugins"`
 	DSH        string            `json:"dsh,omitempty"`
 	DSHSource  string            `json:"dshSource,omitempty"`
@@ -108,7 +109,7 @@ func (c *Core) Status(ctx context.Context, only string) (*Status, error) {
 }
 
 func (c *Core) profileStatus(ctx context.Context, p *profile.Profile, running []proc.Running) ProfileStatus {
-	ps := ProfileStatus{Name: p.Name, Web: p.HasWeb()}
+	ps := ProfileStatus{Name: p.Name, Web: p.HasWeb(), Template: profile.Templates[p.Name]}
 	for _, b := range p.External() {
 		spec := p.Dependencies[b]
 		ps.Plugins = append(ps.Plugins, Plugin{Name: b, Version: p.InstalledVersion(b), Spec: spec, Source: sourceOf(spec)})

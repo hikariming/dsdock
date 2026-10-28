@@ -66,6 +66,17 @@ func (h *host) ResizePanel(height int) {
 	})
 }
 
+// Attention shows the panel under the icon: a quick prompt waits for the
+// user to allow or reject an action.
+func (h *host) Attention() {
+	application.InvokeSync(func() {
+		if !h.panel.IsVisible() {
+			_ = h.tray.PositionWindow(h.panel, panelOffset)
+			h.panel.Show()
+		}
+	})
+}
+
 // Run starts the app and blocks until it quits.
 func Run(c *core.Core, opt Options) error {
 	srv := gui.New(c, opt.Version)

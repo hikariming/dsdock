@@ -144,6 +144,7 @@ type fakeDesktop struct {
 func (f *fakeDesktop) Open(route string)      { f.opened = append(f.opened, route) }
 func (f *fakeDesktop) Quit()                  {}
 func (f *fakeDesktop) ResizePanel(height int) { f.height = height }
+func (f *fakeDesktop) Attention()             {}
 
 func TestDesktopActions(t *testing.T) {
 	s, h := newServer(t)

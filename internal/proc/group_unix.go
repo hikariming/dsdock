@@ -8,14 +8,14 @@ import (
 	"time"
 )
 
-// newGroup starts the command as the leader of its own process group, so the
+// NewGroup starts the command as the leader of its own process group, so the
 // whole tree can be signalled at once.
-func newGroup(cmd *exec.Cmd) {
+func NewGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// killGroup asks the group to stop, then forces it after a grace period.
-func killGroup(cmd *exec.Cmd) {
+// KillGroup asks the group to stop, then forces it after a grace period.
+func KillGroup(cmd *exec.Cmd) {
 	if cmd.Process == nil {
 		return
 	}

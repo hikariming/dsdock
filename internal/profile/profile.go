@@ -25,6 +25,10 @@ var ManagedFiles = []string{
 	"cordis.patch.yml",
 }
 
+// Templates are the profiles dsh ships (`dsh --profile <name>` creates them
+// on first use), as opposed to profiles the user made.
+var Templates = map[string]bool{"web": true, "headless": true, "acp": true, "sdk": true, "sdk-minimal": true}
+
 // WebAppBundle is the in-box bundle that serves the Web UI. Profiles created
 // by `dsh plugin --profile <name>` do not have it unless <name> is a shipped
 // template such as "web".

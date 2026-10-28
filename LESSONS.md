@@ -93,3 +93,9 @@
 **发生了什么**：用户在终端里 `dsh -V` 能输出版本，DSDock.app 却说"还没有可用的 DSH"。macOS 从 launchd 启动图形应用，PATH 只有 `/usr/bin:/bin:/usr/sbin:/sbin`；用户在 `~/.zshrc`、`~/.zprofile` 里加的路径（nvm、Homebrew、npm 全局目录）全都看不到，`node` 和 `pnpm` 也一样。M0 手册的 V12 列过这个问题，但当时没有 Mac 实测；CI 截图又是从终端启动的应用，继承了终端的 PATH，所以也没发现。
 
 **规则**：桌面版启动时先运行一次用户的登录 shell 读取 PATH（`internal/shellenv`）。验证桌面版要模拟真实的启动方式：`desktop.yml` 用 `env -i` 加最小 PATH 启动应用，并截图确认。
+
+### 15. headless 不读网页里保存的 key，需要授权的操作也会被静默拒绝
+
+**发生了什么**：做快速提问时读 headless 的文档才发现两件事。一是 headless 关闭了凭据存储，只从环境变量和 `.env` 读 key，用户在 DSH web 里保存的 key 不生效；二是 headless 没有授权应答者，沙箱外的操作（启动容器、写文件）一律被拒绝，用户看不到任何提示。
+
+**规则**：快速提问用 `--patch` 覆盖层恢复凭据读取，并注入 DSDock 自己的应答者（`internal/quick/assets/dsdock-approval.mjs`）。不修改用户的任何 profile。测试用本地的假 Anthropic 接口（`llm-deepseek` 的 `baseURL`），不花模型费用。

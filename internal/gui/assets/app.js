@@ -265,6 +265,19 @@ function versionPicker(p, compact) {
   return sel;
 }
 
+// The profiles dsh ships, explained: a user who never made "headless" should
+// know what it is (asked after preview.3).
+const TEMPLATE_INFO = {
+  web: "浏览器界面：平时在网页里和 DSH 对话用的",
+  headless: "无界面模式：执行一个任务后退出，用于脚本和自动化。DSDock 的快速提问也用它",
+  acp: "给编辑器（比如 Zed）通过 ACP 协议调用",
+  sdk: "给其它程序通过 SDK 调用",
+  "sdk-minimal": "精简版 SDK 运行时，给其它程序调用",
+};
+// quiet profiles are dsh's own templates nobody added plugins to: listed
+// last and folded away, so the profiles in use stand out.
+const isQuiet = (p) => p.template && p.name !== "web" && !(p.plugins || []).length && !(p.running || []).length;
+
 function statusLine(p) {
   const [cls, word] = health(p);
   let text = `${word} · ${(p.plugins || []).length} 个插件`;
@@ -305,20 +318,30 @@ async function pageHome(main) {
     : h("div", { class: "lead" }, "每个 profile 是一套插件组合。右边选它用哪个 DSH 版本；改动插件前 DSDock 会先检查，改坏了自动回滚。");
   const banners = st.dsh.nodeProblem ? h("div", { class: "banner warn" }, "⚠ " + st.dsh.nodeProblem) : null;
 
-  const rows = st.profiles.map((p) => {
+  const row = (p) => {
     const bad = !p.healthy || health(p)[0] !== "ok";
     return h("div", { class: "item" },
       avatar(p.name),
       h("div", { class: "body" },
-        h("div", { class: "title" }, h("a", { href: "#/p/" + encodeURIComponent(p.name) }, p.name), p.web ? h("span", { class: "pill plain" }, "Web 界面") : null),
-        h("div", { class: "sub" }, statusLine(p))),
+        h("div", { class: "title" }, h("a", { href: "#/p/" + encodeURIComponent(p.name) }, p.name),
+          p.web ? h("span", { class: "pill plain" }, "Web 界面") : null, p.template ? h("span", { class: "pill plain" }, "DSH 自带") : null),
+        h("div", { class: "sub" }, statusLine(p)),
+        TEMPLATE_INFO[p.name] && p.template ? h("div", { class: "sub" }, TEMPLATE_INFO[p.name]) : null),
       h("div", { class: "side" },
-        bad ? h("a", { class: "btn small danger", href: "#/rescue/" + encodeURIComponent(p.name) }, "救援") : null,
+        bad && !isQuiet(p) ? h("a", { class: "btn small danger", href: "#/rescue/" + encodeURIComponent(p.name) }, "救援") : null,
         h("a", { class: "link", href: "#/p/" + encodeURIComponent(p.name) }, `插件 ${(p.plugins || []).length}`),
         versionPicker(p)));
-  });
+  };
+  const shown = st.profiles.filter((p) => !isQuiet(p));
+  const quiet = st.profiles.filter(isQuiet);
+  const rows = shown.map(row);
+  if (quiet.length) {
+    const more = h("button", { class: "more" }, `DSH 自带的其它 profile（${quiet.length}）⌄`);
+    more.addEventListener("click", () => { more.replaceWith(...quiet.map(row)); });
+    rows.push(more);
+  }
   mount(main, lead, banners,
-    h("div", { class: "card" }, rows.length ? rows : h("div", { class: "empty" }, "还没有 profile。在终端里运行 dsh plugin --profile web add <插件> 会创建一个带 Web 界面的 profile。")),
+    h("div", { class: "card" }, st.profiles.length ? rows : h("div", { class: "empty" }, "还没有 profile。在终端里运行 dsh plugin --profile web add <插件> 会创建一个带 Web 界面的 profile。")),
     versionChips((name) => switchFlow({ kind: "use", name }, `把默认版本切换到 ${name}`).then(rerender)));
 }
 
@@ -649,7 +672,7 @@ async function pagePanel(main) {
   document.body.classList.add("panel");
   const [st] = await Promise.all([refreshStatus(), refreshVersions()]);
   const open = (route) => (state.meta && state.meta.desktop ? desktop("open", { route }) : (location.hash = "#" + route));
-  const rows = st.profiles.map((p) => {
+  const rows = st.profiles.filter((p) => !isQuiet(p)).map((p) => {
     const bad = !p.healthy || health(p)[0] !== "ok";
     return h("div", { class: "item" },
       avatar(p.name, true),
@@ -667,7 +690,7 @@ async function pagePanel(main) {
       h("span", { class: "spacer" }),
       h("button", { class: "icon-btn", title: "刷新", onclick: () => route() }, icon("refresh")),
       h("button", { class: "icon-btn", title: "打开 DSDock", onclick: () => open("/") }, icon("open"))),
-    st.dsh.error ? h("div", { class: "banner info" }, "还没有可用的 DSH。") : null,
+    st.dsh.error ? h("div", { class: "banner info" }, "还没有可用的 DSH。") : quickBox(),
     h("div", { class: "card" }, rows.length ? rows : h("div", { class: "empty" }, "还没有 profile")),
     versionChips((name) => switchFlow({ kind: "use", name }, `把默认版本切换到 ${name}`).then(rerender)),
     h("div", { class: "pn-note muted", id: "pn-updates" }, ups),
@@ -676,12 +699,156 @@ async function pagePanel(main) {
       state.meta && state.meta.desktop ? h("button", { class: "btn ghost", onclick: () => desktop("quit") }, "退出") : null)));
 
   fitPanel();
+  resumeQuick();
   // updates are a network round per plugin: count them after the panel shows
   let total = 0;
   await Promise.all(st.profiles.map((p) => api("/api/outdated?profile=" + encodeURIComponent(p.name))
     .then((list) => { total += (list || []).filter((u) => u.latest).length; }).catch(() => {})));
   if (total) mount($("#pn-updates"), h("a", { href: "#", onclick: (e) => { e.preventDefault(); open("/"); } }, `${total} 个插件有更新 ›`));
   fitPanel();
+}
+
+// ---------- quick prompt ----------
+// One sentence to DSH from the panel. DSDock runs it in headless mode; DSH
+// works in its read-only sandbox and asks here before anything more. The
+// conversation is a normal DSH session, so DSH web lists it too.
+const quickState = { run: null, polling: false };
+
+function describeCall(ev) {
+  let i = {};
+  try { i = typeof ev.input === "string" ? JSON.parse(ev.input) : (ev.input || {}); } catch (_) { /* keep empty */ }
+  switch (ev.tool) {
+    case "bash": return ["运行命令", i.command || ""];
+    case "glob": return ["查找文件", (i.pattern || "") + (i.path ? `（${i.path}）` : "")];
+    case "grep": return ["搜索内容", i.pattern || ""];
+    case "read": return ["读取文件", i.file_path || ""];
+    case "read_image": return ["查看图片", i.file_path || ""];
+    case "write": return ["写入文件", i.file_path || ""];
+    case "edit": return ["修改文件", i.file_path || ""];
+    case "web_search": return ["联网搜索", (i.queries || []).join("；")];
+    case "web_fetch": return ["打开网页", i.url || ""];
+    case "working_directory": return ["切换目录", i.cd || ""];
+    default: return [ev.tool, ""];
+  }
+}
+
+function quickBox() {
+  const box = h("div", { class: "quick", id: "quick" });
+  renderQuick(box);
+  return box;
+}
+
+function renderQuick(box) {
+  box = box || $("#quick");
+  if (!box) return;
+  const run = quickState.run;
+  const input = h("textarea", { rows: "1", placeholder: run && run.done && run.sessionId ? "继续追问…" : "让 DSH 帮你做点什么…", title: "比如：找一下桌面上上周的 PDF；把 redis 容器启动起来" });
+  const send = h("button", { class: "btn primary small", title: "发送（回车）" }, "发送");
+  const go = async () => {
+    const prompt = input.value.trim();
+    if (!prompt) return;
+    const sessionId = run && run.done && run.sessionId ? run.sessionId : "";
+    try {
+      const { id } = await api("/api/quick", { prompt, sessionId });
+      quickState.run = { id, prompt, sessionId, events: [], next: 0, pending: [], done: false, history: run && sessionId ? (run.history || []).concat([run]) : [] };
+      renderQuick();
+      pollQuick();
+    } catch (e) { toast(e.message, true); }
+  };
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); go(); } });
+  send.addEventListener("click", go);
+  const busy = run && !run.done;
+  if (busy) { input.disabled = true; send.disabled = true; }
+
+  const convo = [];
+  if (run) {
+    for (const past of run.history || []) convo.push(...turnView(past, true));
+    convo.push(...turnView(run, false));
+    const foot = [];
+    if (busy) foot.push(h("button", { class: "btn ghost small", onclick: () => api(`/api/quick/${run.id}/cancel`, {}) }, "停止"));
+    else foot.push(h("button", { class: "btn ghost small", onclick: async () => { await api("/api/quick/clear", {}).catch(() => {}); quickState.run = null; renderQuick(); fitPanel(); } }, "新对话"));
+    if (run.sessionId && run.done) foot.push(h("span", { class: "muted small grow", title: run.sessionId }, "已保存到 DSH 会话，DSH web 里也能看到"));
+    convo.push(h("div", { class: "q-foot" }, foot));
+  }
+  mount(box, h("div", { class: "ask" }, input, send), run ? h("div", { class: "card q-card" }, convo) : null);
+  fitPanel();
+}
+
+function turnView(run, past) {
+  const out = [h("div", { class: "q-user" }, run.prompt)];
+  const results = {};
+  for (const e of run.events || []) if (e.type === "tool_result") results[e.callId] = e.status;
+  let lastText = "";
+  for (const e of run.events || []) {
+    if (e.type === "tool_call") {
+      const [what, detail] = describeCall(e);
+      const st = results[e.callId];
+      out.push(h("div", { class: "q-step" },
+        h("span", { class: "dot " + (st === "completed" ? "ok" : st ? "bad" : "run") }),
+        h("span", { class: "q-what" }, what), detail ? h("code", { class: "q-detail" }, detail) : null));
+    } else if (e.type === "text" && e.text) {
+      lastText = e.text;
+      out.push(h("div", { class: "q-answer" }, e.text));
+    }
+  }
+  if (!past) {
+    for (const a of run.pending || []) {
+      out.push(h("div", { class: "q-approve" },
+        h("div", { class: "q-approve-title" }, "DSH 想做一件需要你同意的事"),
+        a.reason ? h("div", { class: "small" }, a.reason) : null,
+        a.command ? h("code", { class: "q-cmd" }, a.command) : h("div", { class: "small muted" }, "工具：" + a.toolName),
+        h("div", { class: "row-flex" },
+          h("button", { class: "btn small", onclick: () => answerQuick(a, false) }, "拒绝"),
+          h("button", { class: "btn small primary", onclick: () => answerQuick(a, true) }, "允许这一次"))));
+    }
+    if (!run.done && !(run.pending || []).length) out.push(h("div", { class: "q-wait muted small" }, h("span", { class: "spin" }), " DSH 正在处理…"));
+  }
+  if (run.done && run.result && run.result.final && run.result.final !== lastText) out.push(h("div", { class: "q-answer" }, run.result.final));
+  if (run.done && (run.error || (run.result && run.result.error))) out.push(h("div", { class: "banner bad small" }, run.error || run.result.error));
+  return out;
+}
+
+async function answerQuick(a, allow) {
+  const run = quickState.run;
+  try {
+    await api(`/api/quick/${run.id}/answer`, { approvalId: a.id, allow });
+    run.pending = (run.pending || []).filter((x) => x.id !== a.id);
+    renderQuick();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function pollQuick() {
+  if (quickState.polling) return;
+  quickState.polling = true;
+  try {
+    for (;;) {
+      const run = quickState.run;
+      if (!run || run.done) break;
+      const st = await api(`/api/quick/${run.id}?from=${run.next || 0}`);
+      if (quickState.run !== run) continue;
+      run.events = (run.events || []).concat(st.events || []);
+      run.next = st.next;
+      run.pending = st.pending || [];
+      run.sessionId = st.sessionId || run.sessionId;
+      run.done = st.done;
+      run.result = st.result;
+      run.error = st.error;
+      renderQuick();
+      if (!run.done) await new Promise((r) => setTimeout(r, 700));
+    }
+  } catch (e) { toast(e.message, true); } finally { quickState.polling = false; }
+}
+
+// resumeQuick picks up the conversation running when the panel was closed.
+async function resumeQuick() {
+  if (quickState.run) { if (!quickState.run.done) pollQuick(); return; }
+  try {
+    const st = await api("/api/quick/current");
+    if (!st || !st.id) return;
+    quickState.run = { id: st.id, prompt: st.prompt, sessionId: st.sessionId, events: st.events || [], next: st.next, pending: st.pending || [], done: st.done, result: st.result, error: st.error, history: [] };
+    renderQuick();
+    if (!st.done) pollQuick();
+  } catch (_) { /* nothing to resume */ }
 }
 
 // fitPanel asks the native panel to be as tall as its content.

@@ -264,3 +264,22 @@ body.panel .main { padding: 0; max-width: none; }
 .page-head .status { display: inline-flex; align-items: center; gap: 6px; }
 .btn.ghost.danger { color: var(--bad); }
 .item .sub .dot { margin-right: 0; }
+
+/* ---------- quick prompt ---------- */
+.quick { margin-bottom: 12px; }
+.ask { display: flex; gap: 8px; align-items: flex-end; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 8px 8px 12px; }
+.ask textarea { flex: 1; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14.5px; resize: none; outline: none; min-height: 24px; max-height: 120px; padding: 3px 0; }
+.ask textarea:disabled { color: var(--muted); }
+.q-card { margin-top: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+.q-user { align-self: flex-end; background: var(--field); border-radius: 12px 12px 4px 12px; padding: 6px 10px; font-size: 14px; max-width: 90%; white-space: pre-wrap; word-break: break-word; }
+.q-step { display: flex; align-items: baseline; gap: 6px; font-size: 13px; color: var(--muted); min-width: 0; }
+.q-step .dot { flex: none; transform: translateY(-1px); }
+.q-what { flex: none; }
+.q-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--text); }
+.q-answer { font-size: 14px; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.q-approve { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.q-approve-title { font-weight: 600; font-size: 13.5px; }
+.q-approve .row-flex { justify-content: flex-end; }
+.q-cmd { display: block; background: var(--card); border-radius: 8px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; }
+.q-wait { display: flex; align-items: center; gap: 6px; }
+.q-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }

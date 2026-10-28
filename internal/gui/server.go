@@ -42,6 +42,8 @@ type Desktop interface {
 	Quit()
 	// ResizePanel fits the menu bar panel to its content's height.
 	ResizePanel(height int)
+	// Attention shows the panel: a quick prompt is waiting for an answer.
+	Attention()
 }
 
 // Server is one running GUI.
@@ -54,6 +56,7 @@ type Server struct {
 
 	jobs  *jobs
 	plans sync.Map // id -> *pendingPlan
+	quick quickHub
 }
 
 type pendingPlan struct {
@@ -139,6 +142,12 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/market", s.market)
 	api("GET /api/jobs/{id}", s.job)
 	api("POST /api/desktop/{action}", s.desktopAction)
+	api("POST /api/quick", s.quickStart)
+	api("GET /api/quick/current", s.quickCurrent)
+	api("POST /api/quick/clear", s.quickClear)
+	api("GET /api/quick/{id}", s.quickGet)
+	api("POST /api/quick/{id}/answer", s.quickAnswer)
+	api("POST /api/quick/{id}/cancel", s.quickCancel)
 	if s.desktop != nil {
 		return secureHeaders(mux)
 	}

@@ -48,4 +48,4 @@ jobs:
           DSDOCK_IT_NETWORK: "1"
         run: |
           export DSDOCK_IT_DSH="$RUNNER_TEMP/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js"
-          go test ./internal/cli/ -run Integration -count=1 -v
+          go test ./internal/cli/ ./internal/quick/ -run Integration -count=1 -v

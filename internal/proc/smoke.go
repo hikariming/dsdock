@@ -66,7 +66,7 @@ func Smoke(ctx context.Context, env *dshenv.Env, p *profile.Profile, opt SmokeOp
 		args = append(args, "--no-open", "--port", strconv.Itoa(port))
 	}
 	cmd := env.Command(context.WithoutCancel(ctx), args...)
-	newGroup(cmd)
+	NewGroup(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -136,7 +136,7 @@ wait:
 			res.TimedOut = true
 			break wait
 		case <-ctx.Done():
-			killGroup(cmd)
+			KillGroup(cmd)
 			<-exited
 			return nil, ctx.Err()
 		case <-tick.C:
@@ -154,7 +154,7 @@ wait:
 	}
 	res.Duration = time.Since(start)
 	if !done {
-		killGroup(cmd)
+		KillGroup(cmd)
 		waitErr = <-exited
 	}
 	if res.Exited {
