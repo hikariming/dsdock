@@ -13,6 +13,8 @@ DSDOCK_IT_DSH=<dsh 的 lib/bin.js> DSDOCK_IT_NODE=<node> DSDOCK_IT_NETWORK=1 go 
 
 改代码之前先读 [LESSONS.md](LESSONS.md) 和 [docs/subsystems/](docs/subsystems/)。所有改动 profile 的操作都必须经过 `internal/txn`；新功能先加到 `internal/core`，CLI（`internal/cli`）和 GUI（`internal/gui`）只做展示。
 
+桌面版（`internal/desktop`）只能用 `-tags desktop` 在有 Wails 依赖的平台上编译（macOS 自带；Linux 需要 GTK4/WebKitGTK 开发库）。没有 Mac 时，推送后看 `desktop` 工作流的产物 `desktop-screenshots`：那是 macOS 上真实运行的截图。
+
 改了界面，用无头浏览器截图自己看一遍：
 
 ```bash

@@ -4,9 +4,13 @@
 
 DSDock 不是 DSH 插件，不做聊天界面，也不替代 DSH。它在 DSH 外面工作，所以 DSH 起不来的时候也能把它救回来。
 
-> 🚧 **预览阶段**：命令行和浏览器界面都可以用了——插件生命周期（安装、卸载、更新、禁用、快照、回滚、启动测试）、救援模式、DSH 版本管理（多版本并存、切换、按 profile 锁定、`dsh` 转发器）、插件市场。在 Linux 上对真实的 DSH 做过端到端测试；macOS 原生窗口和托盘（Wails）还在做。[下载 macOS 预览版](https://github.com/hikariming/dsdock/releases)
+> 🚧 **预览阶段**：桌面版（菜单栏常驻）、浏览器界面和命令行都可以用了——插件生命周期（安装、卸载、更新、禁用、快照、回滚、启动测试）、救援模式、DSH 版本管理（多版本并存、切换、按 profile 固定版本、`dsh` 转发器）、插件市场。[下载 macOS 预览版](https://github.com/hikariming/dsdock/releases)
 
-![总览](docs/images/gui-overview.png)
+| 菜单栏常驻，点一下就能看到每个 profile 的状态、切换 DSH 版本 | 主窗口 |
+|---|---|
+| ![菜单栏面板](docs/images/mac-panel.png) | ![主窗口](docs/images/mac-main.png) |
+
+<sub>以上是 GitHub Actions 的 macOS 机器上运行 DSDock.app 的真实截图（`.github/workflows/desktop.yml`）。</sub>
 
 ## 计划中的功能
 
@@ -18,6 +22,10 @@ DSDock 不是 DSH 插件，不做聊天界面，也不替代 DSH。它在 DSH �
 - **整合包**：导出、导入、分享一整套插件组合
 
 ## 图形界面
+
+**桌面版（macOS）**：打开 `DSDock.app`，菜单栏出现一只鲸鱼。左键弹出快捷面板，右键是菜单；主窗口关掉后应用仍常驻菜单栏，不占 Dock。桌面版不开任何网络端口。
+
+**浏览器版（任何平台）**：
 
 ```bash
 dsdock gui          # 在本机启动，并用浏览器打开

@@ -6,6 +6,7 @@
 |---|---|---|
 | 编排 | `internal/core` | "计划 → 确认 → 执行"：CLI 和 GUI 都只是它的外壳。新功能先加到这里 |
 | 图形界面 | `internal/gui` | 本机 HTTP 服务加原生 JS 页面（`assets/`）。只监听 127.0.0.1、每次运行的随机令牌、检查 Host 和 Origin；长任务排队执行。改界面后用 `scripts/gui-shots.mjs` 截图检查 |
+| 桌面版 | `internal/desktop` | `-tags desktop`。菜单栏图标、面板、主窗口；通过 `gui.Desktop` 接口（Open、Quit、ResizePanel）和页面通信 |
 | 救援 | `internal/rescue` | 诊断顺序：patch 文件 → 组装 → 启动；"上一个正常状态"要和当前配置不同（`snapshot.LastGoodOther`） |
 | 事务 | `internal/txn` | [txn.md](./txn.md)：所有改动 profile 的操作的唯一入口 |
 | 组装结果解析 | `internal/layer` | 解析 `--dump-config` 输出和 DSH 的 stderr 警告；格式见设计文档 K8、K20 |

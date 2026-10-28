@@ -243,6 +243,8 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 
 安全：只监听 127.0.0.1；每次运行生成随机令牌，放在 URL 的 `#` 片段里交给页面（不会进入请求和日志）；所有 API 校验令牌、Host（防 DNS 重绑定）和写请求的 Origin；CSP 禁止内联脚本和样式，第三方内容（市场里的描述）一律用 `textContent` 渲染。
 
+**桌面版（第二版实际做法）**：`internal/desktop`（`-tags desktop`，Wails v3.0.0-beta.24，与 Magpie 同版本）。菜单栏模板图标（`scripts/trayicon` 生成）、点击弹出的非激活面板（`#/panel`，按内容调整高度）、隐藏标题栏的主窗口，`ActivationPolicyAccessory` 不占 Dock。页面由 Wails 资源处理器在进程内提供（`gui.Server.Embed`），不开端口，所以桌面模式下没有令牌和 Host 检查。普通构建不含 Wails，保持纯 Go。开发机没有 Mac：`desktop.yml` 在 GitHub 的 macOS 机器上编译 `.app`、装真实 DSH、启动后用 `screencapture` 截屏，截图作为产物下载查看。
+
 ### 4.2 进程模式
 
 同一个二进制，按参数或者被调用时的名字进入不同模式：
@@ -507,7 +509,7 @@ DSDock **不上报任何遥测**。下载量统计只在 dshfind 的服务端看
 |---|---|---|---|
 | **M0 · 验证假设** | 1 周 | 按 [m0-handoff.md](./m0-handoff.md) 在 Linux、Mac、Windows 上逐项实测；搭好仓库骨架和三平台 CI | 每个【待实测】项都有结论；设计文档相应更新 |
 | **M1 · CLI 核心**（已完成。第一波：status/check/add/remove/update/disable/enable/snap/smoke/log；第二波：dsh list/install/use/pin/unpin/which/adopt/uninstall/shim、转发器、PF06/PF07） | 3 周 | dshenv、profile、snapshot、txn、preflight、executor(cli)；`status/check/add/remove/update/snap`；版本目录和转发器；`dsh list/install/use/adopt` | 自己日常用 DSDock；故意装坏插件后能自动回滚 |
-| **M2 · 救援 + GUI**（M2a 已完成：`dsdock rescue`、`dsdock gui` 浏览器界面、`internal/core` 重构；M2b：Wails 原生窗口和托盘，需要在 Mac 上验证） | 3 周 | F6 的诊断和回到上次正常；Wails 托盘和主窗口（总览、Profile、版本、操作记录）；dshfind 数据源；切换版本前预检、一键回退 | 发布已签名的 Mac dmg |
+| **M2 · 救援 + GUI**（已完成：`dsdock rescue`、`dsdock gui` 浏览器界面、`internal/core` 重构、Magpie 风格界面、Wails 菜单栏桌面版 `DSDock.app`，在 CI 的 macOS 上编译运行并截屏验证。待做：签名公证、应用图标、Windows 托盘） | 3 周 | F6 的诊断和回到上次正常；Wails 托盘和主窗口（总览、Profile、版本、操作记录）；dshfind 数据源；切换版本前预检、一键回退 | 发布已签名的 Mac dmg |
 | **M3 · Windows + 多版本** | 2 周 | 托盘里一键重启 profile；按 profile 锁定版本；会话格式降级警告；Windows 打包、签名、PATH、Job Object | 发布 Windows 安装包 |
 | **M4 · 分发** | 2 周 | 自动更新；安装脚本和镜像；dshfind 按钮和深链；Dockfile 导入导出 | 新用户从 dshfind 点一下就能装 |
 | **M5 · 差异化** | 持续 | 冲突分析；二分定位；升级指南影响分析；托管 Node 和 pnpm；多机同步；TUI | — |
