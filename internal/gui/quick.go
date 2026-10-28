@@ -94,6 +94,7 @@ func (s *Server) quickStart(w http.ResponseWriter, r *http.Request) (any, error)
 	s.quick.runs[run.id] = run
 	s.quick.current = run
 	runner := &quick.Runner{Env: env, DataDir: s.core.DataDir}
+	runner.Model, _ = s.core.LastModel() // the model picked in DSH web, account sign-in included
 	if p := os.Getenv("DSDOCK_QUICK_EXTRA_PATCH"); p != "" {
 		runner.ExtraPatches = []string{p} // testing only: e.g. a mock model
 	}

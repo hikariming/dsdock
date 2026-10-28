@@ -176,3 +176,31 @@ func TestRefusesToRewriteUnreadableFile(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultModel(t *testing.T) {
+	src := []byte(`# my patch
+- id: some-plugin
+  disabled: true
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+- id: agent-default-model
+  config:
+    provider: deepseek-account
+    model: deepseek-v4-pro
+    reasoningEffort: high
+- insert:
+    - id: agent-default-model
+      config: {provider: inserted, model: no}
+`)
+	sel, err := DefaultModel(src)
+	if err != nil || sel == nil || *sel != (ModelSelection{"deepseek-account", "deepseek-v4-pro", "high"}) {
+		t.Fatalf("DefaultModel = %+v, %v", sel, err)
+	}
+	for _, none := range []string{"[]", "", "- id: agent-default-model\n  disabled: false\n", "- id: agent-default-model\n  config:\n    provider: !!js ctx.x\n    model: m\n"} {
+		if sel, err := DefaultModel([]byte(none)); err != nil || sel != nil {
+			t.Errorf("DefaultModel(%q) = %+v, %v", none, sel, err)
+		}
+	}
+}

@@ -10,8 +10,10 @@ package core
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/hikariming/dsdock/internal/appdir"
 	"github.com/hikariming/dsdock/internal/dshenv"
@@ -19,6 +21,7 @@ import (
 	"github.com/hikariming/dsdock/internal/profile"
 	"github.com/hikariming/dsdock/internal/snapshot"
 	"github.com/hikariming/dsdock/internal/txn"
+	"github.com/hikariming/dsdock/internal/userpatch"
 	"github.com/hikariming/dsdock/internal/versions"
 )
 
@@ -142,4 +145,34 @@ func (c *Core) LoadProfile(name string) (*profile.Profile, error) {
 		return nil, &ErrNoProfile{Name: name, Dir: profile.Dir(c.Home, name)}
 	}
 	return p, err
+}
+
+// LastModel is the default model the user saved most recently in any of
+// their own profiles (DSH writes it into the profile where it was picked),
+// and that profile's name. It is nil when none was saved.
+func (c *Core) LastModel() (*userpatch.ModelSelection, string) {
+	ps, _ := profile.List(c.Home)
+	var (
+		best   *userpatch.ModelSelection
+		from   string
+		newest time.Time
+	)
+	for _, p := range ps {
+		if p.Name != "web" && profile.Templates[p.Name] {
+			continue // headless, acp, sdk: not where people pick models
+		}
+		path := p.UserPatchPath()
+		fi, err := os.Stat(path)
+		if err != nil || !fi.ModTime().After(newest) {
+			continue
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if sel, err := userpatch.DefaultModel(b); err == nil && sel != nil {
+			best, from, newest = sel, p.Name, fi.ModTime()
+		}
+	}
+	return best, from
 }

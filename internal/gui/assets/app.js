@@ -46,6 +46,7 @@ const ICONS = {
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
   open: "M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
   globe: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3",
+  power: "M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0",
   desktop: "M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1M9 21h6M12 17v4",
 };
 function icon(name) {
@@ -691,14 +692,12 @@ async function pagePanel(main) {
       h("div", { class: "brand" }, h("img", { src: "icon.svg", alt: "" }), h("span", {}, "DSDock")),
       h("span", { class: "spacer" }),
       h("button", { class: "icon-btn", title: "刷新", onclick: () => route() }, icon("refresh")),
-      h("button", { class: "icon-btn", title: "打开 DSDock", onclick: () => open("/") }, icon("open"))),
-    st.dsh.error ? h("div", { class: "banner info" }, "还没有可用的 DSH。") : [quickBox(), launchRow()],
+      h("button", { class: "icon-btn", title: "打开 DSDock", onclick: () => open("/") }, icon("open")),
+      state.meta && state.meta.desktop ? h("button", { class: "icon-btn", title: "退出 DSDock", onclick: () => desktop("quit") }, icon("power")) : null),
     h("div", { class: "card" }, rows.length ? rows : h("div", { class: "empty" }, "还没有 profile")),
     versionChips((name) => switchFlow({ kind: "use", name }, `把默认版本切换到 ${name}`).then(rerender)),
     h("div", { class: "pn-note muted", id: "pn-updates" }, ups),
-    h("div", { class: "pn-foot" },
-      h("button", { class: "btn ghost", onclick: () => open("/") }, "打开 DSDock"),
-      state.meta && state.meta.desktop ? h("button", { class: "btn ghost", onclick: () => desktop("quit") }, "退出") : null)));
+    st.dsh.error ? h("div", { class: "banner info pn-bottom" }, "还没有可用的 DSH。") : [launchRow(), quickBox()]));
 
   fitPanel();
   resumeQuick();
@@ -811,7 +810,11 @@ function renderQuick(box) {
     }
     convo.push(h("div", { class: "q-foot" }, foot));
   }
-  mount(box, h("div", { class: "ask" }, input, send), run ? h("div", { class: "card q-card" }, convo) : null);
+  // the input sits at the panel's bottom edge: the input method's candidate
+  // window opens below the panel instead of under it
+  const card = run ? h("div", { class: "card q-card" }, convo) : null;
+  mount(box, card, h("div", { class: "ask" }, input, send));
+  if (card) card.scrollTop = card.scrollHeight;
   fitPanel();
 }
 

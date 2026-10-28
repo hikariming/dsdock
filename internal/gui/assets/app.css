@@ -261,7 +261,10 @@ body.panel .main { padding: 0; max-width: none; }
 .pn-foot { display: flex; justify-content: flex-end; gap: 4px; margin-top: 10px; }
 .pn-foot .btn { font-size: 13.5px; }
 .pn-note { margin: 10px 4px 0; font-size: 13px; }
-.pn-launch { display: flex; gap: 8px; margin-bottom: 12px; }
+.pn-launch { display: flex; gap: 8px; margin: 12px 0 0; }
+.pn .quick { margin: 10px 0 0; }
+.pn .q-card { margin: 0 0 10px; }
+.pn-bottom { margin: 12px 0 0; }
 .launch { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .launch:hover:not(:disabled) { background: var(--field); }
 .launch:disabled { cursor: default; opacity: .7; }

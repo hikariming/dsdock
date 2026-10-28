@@ -105,3 +105,9 @@
 **发生了什么**：面板启动的 DSH web 应该随 DSDock 一起退出。测试时用 `kill` 停掉 `dsdock gui`，DSH web 还在跑。CLI 只监听了 `os.Interrupt`，SIGTERM 直接结束进程，清理代码（`srv.Close()`）没有运行。
 
 **规则**：凡是启动了长期运行的子进程的命令，都要处理 SIGINT、SIGTERM、SIGHUP（`cli.Main` 统一处理），子进程放进独立的进程组，退出时整组停掉。测试清理时不能只按 Ctrl+C，也要用 `kill` 验证。桌面版由 Wails 处理信号，退出时调用 `OnShutdown`。
+
+### 17. 用环境变量里的 key 测试，掩盖了用户真实的登录方式
+
+**发生了什么**：快速提问的集成测试用 `DEEPSEEK_API_KEY` 环境变量提供 key，测试通过。用户在 Mac 上用的时候报 `MISSING_CREDENTIAL`（`deepseek-official` 路由没有 API key）。原因是用户在 DSH web 里选的模型（例如 DeepSeek 账号登录后的模型）只写进了那个 profile 的 `cordis.patch.yml`，headless profile 用的是它自己的默认模型。
+
+**规则**：测试要覆盖用户真实的配置方式：key 保存在 `$DSH_HOME/.credentials.yaml`、模型在网页里选过，而不只是测环境变量。借用别的 profile 运行时，先列出用户在原 profile 里做过的设置（模型、key、登录状态），逐项确认新 profile 能不能拿到。

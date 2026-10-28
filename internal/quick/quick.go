@@ -5,6 +5,9 @@
 //
 //   - the credential store is switched back on, so keys saved in DSH web work
 //     (headless otherwise reads only the environment and .env files);
+//   - the model the user last picked in DSH web, which DSH saves in that
+//     profile only: headless would otherwise use its own default, the API-key
+//     route, and fail for users signed in with a DeepSeek account;
 //   - dsdock-approval.mjs answers approval requests by asking DSDock. headless
 //     has no answerer of its own, so every action outside the sandbox would
 //     be rejected without the user ever seeing it.
@@ -29,6 +32,8 @@ import (
 	"github.com/hikariming/dsdock/internal/dshenv"
 	"github.com/hikariming/dsdock/internal/proc"
 	"github.com/hikariming/dsdock/internal/redact"
+	"github.com/hikariming/dsdock/internal/userpatch"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed assets/dsdock-approval.mjs
@@ -96,6 +101,9 @@ type Runner struct {
 	// ExtraPatches are more --patch overlays; tests point the model at a
 	// mock with one (DSDOCK_QUICK_EXTRA_PATCH in the GUI).
 	ExtraPatches []string
+	// Model is the user's default model from another profile; nil keeps
+	// headless's own.
+	Model *userpatch.ModelSelection
 }
 
 // Run asks DSH and blocks until it finishes. onEvent sees every event;
@@ -246,8 +254,20 @@ func (r *Runner) writeOverlay() (string, error) {
 	if err := os.WriteFile(filepath.Join(dir, "dsdock-approval.mjs"), approvalPlugin, 0o644); err != nil {
 		return "", err
 	}
+	text := overlay
+	if r.Model != nil {
+		type entry struct {
+			ID     string                    `yaml:"id"`
+			Config *userpatch.ModelSelection `yaml:"config"`
+		}
+		b, err := yaml.Marshal([]entry{{userpatch.ModelEntry, r.Model}})
+		if err != nil {
+			return "", err
+		}
+		text += "# The model last picked in DSH web.\n" + string(b)
+	}
 	p := filepath.Join(dir, "quick.patch.yml")
-	return p, os.WriteFile(p, []byte(overlay), 0o644)
+	return p, os.WriteFile(p, []byte(text), 0o644)
 }
 
 // parseApproval reads the plugin's line. dsh's reason may be a plain string
@@ -293,8 +313,14 @@ func commandOf(input json.RawMessage) string {
 func explain(diag string) string {
 	for _, l := range strings.Split(diag, "\n") {
 		l = strings.TrimSpace(l)
-		if strings.Contains(l, "MISSING_CREDENTIAL") || strings.Contains(l, "AUTH:") {
-			return "DeepSeek API key 无效或没有配置：请在 DSH web 的设置里添加 API key。（" + l + "）"
+		switch {
+		case strings.Contains(l, "ACCOUNT_SIGN_IN_REQUIRED"):
+			return "DeepSeek 账号没有登录：请先在 DSH web 里登录。（" + l + "）"
+		case strings.Contains(l, "MISSING_CREDENTIAL"):
+			return "没有找到 DeepSeek API key：请在 DSH web 的设置里保存 API key，或者登录 DeepSeek 账号并选用账号的模型。" +
+				"只在终端里 export 的 DEEPSEEK_API_KEY，从访达打开的 DSDock 读不到。（" + l + "）"
+		case strings.Contains(l, "AUTH:"):
+			return "DeepSeek API key 无效：请在 DSH web 的设置里更新。（" + l + "）"
 		}
 	}
 	for _, l := range strings.Split(diag, "\n") {

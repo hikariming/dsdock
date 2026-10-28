@@ -198,3 +198,44 @@ func boolNode(b bool) *yaml.Node {
 	}
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: v}
 }
+
+// ModelEntry is the entry DSH saves the user's default model in: picking a
+// model in DSH web writes its config override into the active profile.
+const ModelEntry = "agent-default-model"
+
+// ModelSelection is that saved choice.
+type ModelSelection struct {
+	Provider        string `yaml:"provider"`
+	Model           string `yaml:"model"`
+	ReasoningEffort string `yaml:"reasoningEffort,omitempty"`
+}
+
+// DefaultModel reads the model the user picked in this profile, if any: the
+// last override of ModelEntry whose config names a provider and a model.
+func DefaultModel(src []byte) (*ModelSelection, error) {
+	_, seq, err := parse(src)
+	if err != nil {
+		return nil, err
+	}
+	var found *ModelSelection
+	for _, item := range seq.Content {
+		if !isOverrideOf(item, ModelEntry) {
+			continue
+		}
+		cfg := value(item, "config")
+		if cfg == nil || cfg.Kind != yaml.MappingNode {
+			continue
+		}
+		scalar := func(k string) string {
+			if v := value(cfg, k); v != nil && v.Kind == yaml.ScalarNode && v.Tag != "!!js" {
+				return v.Value
+			}
+			return ""
+		}
+		sel := &ModelSelection{Provider: scalar("provider"), Model: scalar("model"), ReasoningEffort: scalar("reasoningEffort")}
+		if sel.Provider != "" && sel.Model != "" {
+			found = sel
+		}
+	}
+	return found, nil
+}

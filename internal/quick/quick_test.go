@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/hikariming/dsdock/internal/dshenv"
+	"github.com/hikariming/dsdock/internal/userpatch"
 )
 
 func TestParseApproval(t *testing.T) {
@@ -150,5 +151,21 @@ func TestIntegrationApproval(t *testing.T) {
 				t.Fatalf("session %s not stored under %s/sessions", res.SessionID, home)
 			}
 		})
+	}
+}
+
+func TestOverlayCarriesModel(t *testing.T) {
+	r := &Runner{DataDir: t.TempDir(), Model: &userpatch.ModelSelection{Provider: "deepseek-account", Model: "deepseek-v4-pro"}}
+	p, err := r.writeOverlay()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	sel, err := userpatch.DefaultModel(b)
+	if err != nil || sel == nil || sel.Provider != "deepseek-account" || sel.Model != "deepseek-v4-pro" {
+		t.Fatalf("overlay model = %+v, %v\n%s", sel, err, b)
+	}
+	if e := explain("dsh: MISSING_CREDENTIAL: llm-deepseek: no API key for provider route \"deepseek-official\"\n"); !strings.Contains(e, "登录 DeepSeek 账号") {
+		t.Errorf("explain = %q", e)
 	}
 }
