@@ -91,6 +91,8 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 | K25 | 每个 DSH 版本用 npm 安装占 856MB；用 pnpm（全局缓存 + 硬链接）安装，两个版本合计 548MB。DSH 依赖的安装脚本里**只有 `dsh-subprocess-local` 需要运行**（给 node-pty 预编译的 macOS `spawn-helper` 加执行权限）；`node-pty` 自带六个平台的预编译二进制，`koffi` 的二进制通过可选依赖 `@koromix/koffi-<平台>` 提供，它们的脚本都可以跳过。DSDock 用 `allowBuilds` 明确放行和拒绝，加上 `strictDepBuilds: false`，安装退出码为 0 | Linux V2、第二波 | 【已核实】 |
 | K27 | DSH 遇到不兼容的组合包时**跳过它**，stderr 打印 `dsh: skipping profile bundle "<包名>": <原因>`，**退出码仍为 0**。用户可以用 `dsh plugin allow-version` 给某个插件版本授予豁免 | 第二波实测、`dsh-app-boot` 源码 | 【已核实】 |
 | K28 | 上游 tag 名是 `dsh-v<版本>`，新版本可能还没打 tag（rc.4 发布时最新 tag 是 rc.3） | GitHub | 【已核实】 |
+| K29 | `dsh --profile web` 在 stdout 打印 `dsh web: <地址>?token=<令牌>`，令牌每个进程新生成、只出现在这一行，进程存活期间可以反复使用（换 cookie 后跳转到不带令牌的地址）。`--port 0` 让系统分配空闲端口（默认是 3080）。网页端没有指向单个会话的 URL，当前会话只保存在页面状态里 | 第二版实测、`dsh-web-app`/`dsh-client-connection` 源码 | 【已核实】 |
+| K30 | 官方桌面版（anywhere-labs/deepseek-harness-desktop）有两个：`DSH Desktop`（`ai.deepseek.dsh.desktop`，可执行文件 `dsh-desktop`）和 `DSH NEXT`（`ai.deepseek.dsh.desktop.next`，`dsh-desktop-next`），用 electron-builder 打包 | 上游 package.json | 【已核实】，Mac 上的实际安装位置【待实测】 |
 | K26 | git 插件的放行 key 格式是 `<包名>@<规格>#<40 位 commit>`，和 commit 绑定；pnpm 打印的 key 会被终端换行截断；安装失败时 profile 不变 | Linux V14 | 【已核实】 |
 
 ---
@@ -228,6 +230,15 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 - 协议：插件往 stderr 写 `dsdock:approval {id,toolName,callId,reason}`，DSDock 往它的 stdin 写 `{id,outcome}`。不开网络端口。用 `callId` 和 `--json` 事件流里的 `tool_call` 对上，拿到具体命令。
 - 会话存在 `$DSH_HOME/sessions`，DSH web 的侧边栏里能看到（不在某个工作区时归入"Ungrouped"）。在面板里可以用 `--session-id` 追问。
 - 已验证：用本地的假 Anthropic 接口（覆盖 `llm-deepseek` 的 `baseURL`）配合真实 DSH 跑完"请求授权 → 允许或拒绝 → 回答"的全流程，并确认 DSH web 侧边栏能看到这些会话（`internal/quick` 集成测试）。
+
+### F13 一键打开 DSH Web 和桌面版（第二版新增）
+
+快速提问只适合一句话的小事；要接着深入时，面板上一键打开完整的界面。
+
+- **DSH Web**：令牌只在启动它的进程的 stdout 里（K29），别人启动的实例打不开，所以 DSDock 自己启动一个：`dsh --profile web --no-open --port 0`，从 stdout 读到地址后交给系统浏览器。地址不经过页面；日志写到 `$DSDOCK_HOME/web/web.log`，令牌已脱敏。再次点击复用同一个实例；DSDock 退出时（包括收到 SIGTERM、SIGHUP）连同进程组一起停掉。
+- **在 DSH Web 里继续**：快速提问结束后出现。DSH web 没有会话链接（K29），所以只是打开 DSH web，这次对话在会话列表最上面。
+- **桌面版**：按 K30 查找。macOS 先看 `/Applications`、`~/Applications`，找不到再用 Spotlight 按 bundle id 查；Windows 看 `%LOCALAPPDATA%\Programs` 和 `%ProgramFiles%`。找到就 `open -a` 启动，没装就提供下载链接（dshdesktop.cn）。
+- 已验证：真实 DSH 的集成测试（`internal/launch`，用打印的地址登录拿到 cookie、复用、停止）；Linux 上用假的 `xdg-open` 和 `dsh-desktop` 走通面板里的整个流程并截图。
 
 ---
 

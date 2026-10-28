@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/mattn/go-isatty"
 
@@ -85,7 +86,9 @@ DSH 版本
 
 // Main runs the CLI and returns the process exit code.
 func Main(argv []string) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// Ctrl+C, kill, or the terminal closing: let commands clean up, e.g. the
+	// GUI stopping the DSH web it started.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	return run(ctx, argv, os.Stdout, os.Stderr, os.Stdin)
 }

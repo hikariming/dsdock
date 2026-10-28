@@ -178,3 +178,18 @@ func TestDesktopActions(t *testing.T) {
 		t.Fatalf("meta = %v", meta)
 	}
 }
+
+func TestLaunchInfo(t *testing.T) {
+	s, h := newServer(t)
+	w := do(h, "GET", "/api/launch", host, s.Token(), "", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"webRunning":false`) || !strings.Contains(w.Body.String(), `"apps":[`) {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	w = do(h, "POST", "/api/launch/app", host, s.Token(), "", `{"id":"not-an-app"}`)
+	if w.Code != 404 {
+		t.Fatalf("unknown app: status %d: %s", w.Code, w.Body)
+	}
+	if w := do(h, "POST", "/api/launch/web", host, "", "", `{}`); w.Code != 401 {
+		t.Fatalf("launching web without the token: status %d", w.Code)
+	}
+}

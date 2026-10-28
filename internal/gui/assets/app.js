@@ -45,6 +45,8 @@ function mount(el, ...kids) { el.replaceChildren(...kids.flat(Infinity).filter(B
 const ICONS = {
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
   open: "M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
+  globe: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3",
+  desktop: "M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1M9 21h6M12 17v4",
 };
 function icon(name) {
   const ns = "http://www.w3.org/2000/svg";
@@ -690,7 +692,7 @@ async function pagePanel(main) {
       h("span", { class: "spacer" }),
       h("button", { class: "icon-btn", title: "刷新", onclick: () => route() }, icon("refresh")),
       h("button", { class: "icon-btn", title: "打开 DSDock", onclick: () => open("/") }, icon("open"))),
-    st.dsh.error ? h("div", { class: "banner info" }, "还没有可用的 DSH。") : quickBox(),
+    st.dsh.error ? h("div", { class: "banner info" }, "还没有可用的 DSH。") : [quickBox(), launchRow()],
     h("div", { class: "card" }, rows.length ? rows : h("div", { class: "empty" }, "还没有 profile")),
     versionChips((name) => switchFlow({ kind: "use", name }, `把默认版本切换到 ${name}`).then(rerender)),
     h("div", { class: "pn-note muted", id: "pn-updates" }, ups),
@@ -732,6 +734,41 @@ function describeCall(ev) {
   }
 }
 
+// ---------- launching DSH's own interfaces from the panel ----------
+const launchState = { info: null, webBusy: false };
+function launchRow() {
+  const row = h("div", { class: "pn-launch", id: "pn-launch" });
+  renderLaunch(row);
+  api("/api/launch").then((info) => { launchState.info = info; renderLaunch(); fitPanel(); }).catch(() => {});
+  return row;
+}
+async function openWeb() {
+  if (launchState.webBusy) return;
+  launchState.webBusy = true;
+  renderLaunch(); renderQuick();
+  try {
+    await api("/api/launch/web", {});
+    if (launchState.info) launchState.info.webRunning = true;
+  } catch (e) { toast(e.message, true); }
+  launchState.webBusy = false;
+  renderLaunch(); renderQuick();
+}
+function launchButton(ic, name, sub, onclick, disabled) {
+  return h("button", { class: "launch", onclick, disabled }, icon(ic), h("span", { class: "launch-text" }, h("b", {}, name), h("small", {}, sub)));
+}
+function renderLaunch(row) {
+  row = row || $("#pn-launch");
+  if (!row) return;
+  const info = launchState.info;
+  const web = launchButton("globe", "DSH Web",
+    launchState.webBusy ? "启动中…" : info && info.webRunning ? "已在运行 · 打开" : "在浏览器里打开", openWeb, launchState.webBusy);
+  const openApp = (id) => api("/api/launch/app", { id }).catch((e) => toast(e.message, true));
+  const apps = info && info.apps.length
+    ? info.apps.map((a) => launchButton("desktop", a.name, "打开桌面版", () => openApp(a.id)))
+    : [launchButton("desktop", "DSH Desktop", info ? "没有安装 · 去下载" : "…", () => openApp("download"), !info)];
+  mount(row, web, apps);
+}
+
 function quickBox() {
   const box = h("div", { class: "quick", id: "quick" });
   renderQuick(box);
@@ -767,7 +804,11 @@ function renderQuick(box) {
     const foot = [];
     if (busy) foot.push(h("button", { class: "btn ghost small", onclick: () => api(`/api/quick/${run.id}/cancel`, {}) }, "停止"));
     else foot.push(h("button", { class: "btn ghost small", onclick: async () => { await api("/api/quick/clear", {}).catch(() => {}); quickState.run = null; renderQuick(); fitPanel(); } }, "新对话"));
-    if (run.sessionId && run.done) foot.push(h("span", { class: "muted small grow", title: run.sessionId }, "已保存到 DSH 会话，DSH web 里也能看到"));
+    if (run.sessionId && run.done) {
+      foot.push(h("span", { class: "muted small grow nowrap", title: "已保存为 DSH 会话 " + run.sessionId }, "已保存"));
+      foot.push(h("button", { class: "btn small", disabled: launchState.webBusy, title: "在 DSH Web 的会话列表里，这次对话在最上面", onclick: openWeb },
+        launchState.webBusy ? "正在启动 DSH Web…" : "在 DSH Web 里继续 ›"));
+    }
     convo.push(h("div", { class: "q-foot" }, foot));
   }
   mount(box, h("div", { class: "ask" }, input, send), run ? h("div", { class: "card q-card" }, convo) : null);

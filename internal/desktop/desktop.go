@@ -86,6 +86,7 @@ func Run(c *core.Core, opt Options) error {
 	h.app = application.New(application.Options{
 		Name:        "DSDock",
 		Description: "DeepSeek Harness 的外部管理器",
+		OnShutdown:  srv.Close, // the DSH web DSDock started stops with it
 		Assets:      application.AssetOptions{Handler: srv.Handler()},
 		// A menu bar app: no Dock icon; closing the window keeps it running.
 		Mac:   application.MacOptions{ActivationPolicy: application.ActivationPolicyAccessory},
@@ -139,6 +140,7 @@ func Run(c *core.Core, opt Options) error {
 	menu := application.NewMenu()
 	menu.Add("打开 DSDock").OnClick(func(*application.Context) { h.Open("/") })
 	menu.Add("DSH 版本").OnClick(func(*application.Context) { h.Open("/versions") })
+	menu.Add("打开 DSH Web").OnClick(func(*application.Context) { go srv.OpenWeb() })
 	menu.AddSeparator()
 	menu.Add("退出 DSDock").OnClick(func(*application.Context) { h.app.Quit() })
 

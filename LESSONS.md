@@ -99,3 +99,9 @@
 **发生了什么**：做快速提问时读 headless 的文档才发现两件事。一是 headless 关闭了凭据存储，只从环境变量和 `.env` 读 key，用户在 DSH web 里保存的 key 不生效；二是 headless 没有授权应答者，沙箱外的操作（启动容器、写文件）一律被拒绝，用户看不到任何提示。
 
 **规则**：快速提问用 `--patch` 覆盖层恢复凭据读取，并注入 DSDock 自己的应答者（`internal/quick/assets/dsdock-approval.mjs`）。不修改用户的任何 profile。测试用本地的假 Anthropic 接口（`llm-deepseek` 的 `baseURL`），不花模型费用。
+
+### 16. 只处理 Ctrl+C，被 kill 时子进程就留下了
+
+**发生了什么**：面板启动的 DSH web 应该随 DSDock 一起退出。测试时用 `kill` 停掉 `dsdock gui`，DSH web 还在跑。CLI 只监听了 `os.Interrupt`，SIGTERM 直接结束进程，清理代码（`srv.Close()`）没有运行。
+
+**规则**：凡是启动了长期运行的子进程的命令，都要处理 SIGINT、SIGTERM、SIGHUP（`cli.Main` 统一处理），子进程放进独立的进程组，退出时整组停掉。测试清理时不能只按 Ctrl+C，也要用 `kill` 验证。桌面版由 Wails 处理信号，退出时调用 `OnShutdown`。

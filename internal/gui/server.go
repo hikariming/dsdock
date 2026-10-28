@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -30,6 +31,7 @@ import (
 	"time"
 
 	"github.com/hikariming/dsdock/internal/core"
+	"github.com/hikariming/dsdock/internal/launch"
 )
 
 //go:embed assets
@@ -57,6 +59,7 @@ type Server struct {
 	jobs  *jobs
 	plans sync.Map // id -> *pendingPlan
 	quick quickHub
+	web   *launch.Web // DSH web started from the panel; stopped by Close
 }
 
 type pendingPlan struct {
@@ -67,7 +70,19 @@ type pendingPlan struct {
 
 // New prepares a server. version is DSDock's own version, shown in the UI.
 func New(c *core.Core, version string) *Server {
-	return &Server{core: c, token: randomHex(24), version: version, jobs: newJobs(c)}
+	return &Server{core: c, token: randomHex(24), version: version, jobs: newJobs(c),
+		web: &launch.Web{LogPath: filepath.Join(c.DataDir, "web", "web.log")}}
+}
+
+// Close stops what the server started on its own: the DSH web instance and
+// any quick prompt still running. Call it when DSDock exits.
+func (s *Server) Close() {
+	s.quick.mu.Lock()
+	if c := s.quick.current; c != nil {
+		c.cancel()
+	}
+	s.quick.mu.Unlock()
+	s.web.Stop()
 }
 
 // Embed serves the interface inside the desktop app. Its webview fetches
@@ -148,6 +163,9 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/quick/{id}", s.quickGet)
 	api("POST /api/quick/{id}/answer", s.quickAnswer)
 	api("POST /api/quick/{id}/cancel", s.quickCancel)
+	api("GET /api/launch", s.launchInfo)
+	api("POST /api/launch/web", s.launchWeb)
+	api("POST /api/launch/app", s.launchApp)
 	if s.desktop != nil {
 		return secureHeaders(mux)
 	}
