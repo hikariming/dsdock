@@ -526,8 +526,18 @@ async function pageVersions(main) {
     h("div", { class: "side" }, h("button", { class: "btn small", onclick: async () => { const r = await api("/api/shim", {}); toast("转发器已写入 " + r.shim); route(); } }, v.shimInstalled ? "重新安装" : "安装")));
 
   const avail = h("div", { class: "card" }, h("div", { class: "empty" }, h("span", { class: "spin" }), " 正在读取可安装的版本…"));
+  const found = h("div", {});
   mount(main, h("div", { class: "lead" }, "多个版本可以并存。没有固定版本的 profile 跟随", h("strong", {}, "默认版本"), "；在 Profile 页的下拉框里可以给某个 profile 固定版本。"),
-    installed, h("h2", {}, "转发器"), shim, h("h2", {}, "可以安装的版本"), avail);
+    found, installed, h("h2", {}, "转发器"), shim, h("h2", {}, "可以安装的版本"), avail);
+  // A dsh installed some other way (npm i -g) can be used as it is.
+  api("/api/versions/detect").then((d) => {
+    if (!d.found) return;
+    mount(found, h("div", { class: "card item" },
+      h("div", { class: "body" }, h("div", { class: "title" }, `发现已安装的 DSH ${d.version}`), h("div", { class: "sub mono" }, d.entry)),
+      h("div", { class: "side" }, h("button", { class: "btn small primary", onclick: async () => {
+        try { const i = await api("/api/versions/adopt", {}); toast(`已接管 DSH ${i.version}，原来的安装没有移动`); route(); } catch (e) { toast(e.message, true); }
+      } }, "接管"))), h("div", { class: "lead small" }, "接管后由 DSDock 统一管理，原来的安装不会移动或删除。"));
+  }).catch(() => {});
   try {
     const rel = await api("/api/versions/available");
     let showAll = false;

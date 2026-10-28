@@ -133,6 +133,8 @@ func (s *Server) Handler() http.Handler {
 	api("POST /api/versions/plan/{id}/apply", s.applyVersionPlan)
 	api("POST /api/versions/unpin", s.unpin)
 	api("POST /api/versions/uninstall", s.uninstallVersion)
+	api("GET /api/versions/detect", s.detectVersion)
+	api("POST /api/versions/adopt", s.adoptVersion)
 	api("POST /api/shim", s.installShim)
 	api("GET /api/market", s.market)
 	api("GET /api/jobs/{id}", s.job)

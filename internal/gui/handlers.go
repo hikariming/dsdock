@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hikariming/dsdock/internal/dshenv"
 	"github.com/hikariming/dsdock/internal/proc"
 	"github.com/hikariming/dsdock/internal/rescue"
 	"github.com/hikariming/dsdock/internal/shim"
@@ -351,6 +352,31 @@ func (s *Server) uninstallVersion(w http.ResponseWriter, r *http.Request) (any, 
 		return nil, badRequest("%v", err)
 	}
 	return map[string]bool{"ok": true}, nil
+}
+
+// detectVersion reports a dsh installed outside DSDock (npm i -g and the
+// like) that could be adopted.
+func (s *Server) detectVersion(w http.ResponseWriter, r *http.Request) (any, error) {
+	if _, err := s.core.Vers.Get(versions.External); err == nil {
+		return map[string]any{"found": false, "reason": "adopted"}, nil
+	}
+	env, err := dshenv.Discover(s.core.ShimDir())
+	if err != nil {
+		return map[string]any{"found": false, "path": os.Getenv("PATH")}, nil
+	}
+	v, err := env.Version(r.Context())
+	if err != nil {
+		return map[string]any{"found": false, "entry": env.Entry, "error": err.Error()}, nil
+	}
+	return map[string]any{"found": true, "entry": env.Entry, "version": v}, nil
+}
+
+func (s *Server) adoptVersion(w http.ResponseWriter, r *http.Request) (any, error) {
+	inst, err := s.core.Vers.Adopt(r.Context(), "", s.core.ShimDir())
+	if err != nil {
+		return nil, badRequest("%v", err)
+	}
+	return inst, nil
 }
 
 func (s *Server) installShim(w http.ResponseWriter, r *http.Request) (any, error) {

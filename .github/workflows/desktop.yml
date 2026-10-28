@@ -44,6 +44,28 @@ jobs:
           for b in fx-ok fx-conflict-a fx-conflict-b; do $DSH plugin --profile work add "$PWD/$F/$b"; done
           $BIN status
 
+      # Reproduces preview.2's bug: opened from Finder, an app gets launchd's
+      # bare PATH and could not see a dsh installed with npm -g. Here dsh is
+      # on the PATH only through ~/.zprofile, and the app starts with an
+      # empty environment and no DSH of DSDock's own.
+      - name: Finder-like launch finds the user's dsh
+        run: |
+          set -euo pipefail
+          npm install -g @deepseek-ai/dsh@latest --no-audit --no-fund > /dev/null
+          NPMBIN=$(dirname "$(command -v dsh)")
+          echo "export PATH=\"$NPMBIN:\$PATH\"" >> ~/.zprofile
+          mkdir -p shots
+          BIN=$PWD/dist/DSDock.app/Contents/MacOS/dsdock-app
+          env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL=/bin/zsh TMPDIR="$TMPDIR" \
+            PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+            DSDOCK_HOME="$RUNNER_TEMP/finder-dsdock" DSH_HOME="$DSH_HOME" \
+            "$BIN" app --show main > shots/finder.log 2>&1 &
+          pid=$!
+          sleep 14
+          screencapture -x shots/finder.png || true
+          kill "$pid" || true
+          sleep 2
+
       - name: Screenshots
         run: |
           set -euo pipefail

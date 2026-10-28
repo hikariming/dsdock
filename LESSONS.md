@@ -85,3 +85,11 @@
 **发生了什么**：清理残留的 Chromium 时用了 `pkill -f '<模式>'`，又换成 `pgrep -f '<模式>' | xargs kill`。两次都把执行这条命令的 shell 自己杀掉了：`-f` 匹配的是完整命令行，而 shell 的命令行里恰好包含这个模式。同一次还发现，截图脚本只结束了 Chromium 主进程，它的 zygote 子进程留了下来。
 
 **规则**：按命令行查找进程时用 `[c]hrome` 这种写法，让模式匹配不到自己；能按 PID 或进程组结束就不要按名字。自己写的测试工具也要遵守第 1 条：子进程放进独立的进程组，结束时对整个组发信号（`scripts/gui-shots.mjs`）。
+
+## 2026-10-28 · preview.2 的用户反馈
+
+### 14. 从 Finder 打开的应用看不到终端里的 PATH
+
+**发生了什么**：用户在终端里 `dsh -V` 能输出版本，DSDock.app 却说"还没有可用的 DSH"。macOS 从 launchd 启动图形应用，PATH 只有 `/usr/bin:/bin:/usr/sbin:/sbin`；用户在 `~/.zshrc`、`~/.zprofile` 里加的路径（nvm、Homebrew、npm 全局目录）全都看不到，`node` 和 `pnpm` 也一样。M0 手册的 V12 列过这个问题，但当时没有 Mac 实测；CI 截图又是从终端启动的应用，继承了终端的 PATH，所以也没发现。
+
+**规则**：桌面版启动时先运行一次用户的登录 shell 读取 PATH（`internal/shellenv`）。验证桌面版要模拟真实的启动方式：`desktop.yml` 用 `env -i` 加最小 PATH 启动应用，并截图确认。
