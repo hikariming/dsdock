@@ -275,6 +275,17 @@ function statusLine(p) {
 function versionChips(onPick) {
   const v = state.versions || { installed: [] };
   if (!(v.installed || []).length) {
+    const head = state.status && state.status.dsh;
+    // DSDock manages no release yet but is already running the user's own
+    // dsh (npm i -g): say so, and offer to adopt it rather than "install".
+    if (head && head.source === "PATH" && head.version) {
+      return h("div", { class: "chips" }, h("span", { class: "chips-label" }, "DSH"),
+        h("span", { class: "chip on", title: head.entry }, `终端里的 ${head.version}`, h("span", { class: "mark" })),
+        h("button", { class: "chip", title: "由 DSDock 统一管理，原来的安装不会移动或删除", onclick: async () => {
+          try { const i = await api("/api/versions/adopt", {}); toast(`已接管 DSH ${i.version}`); rerender(); } catch (e) { toast(e.message, true); }
+        } }, "接管"),
+        h("a", { class: "chip", href: "#/versions" }, "+ 安装其它版本"));
+    }
     return h("div", { class: "chips" }, h("span", { class: "chips-label" }, "DSH"),
       h("a", { class: "chip", href: "#/versions" }, "+ 安装 DSH"));
   }
