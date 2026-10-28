@@ -135,3 +135,45 @@ func TestMarketDropsDSHItself(t *testing.T) {
 		t.Errorf("git item = %+v", it)
 	}
 }
+
+type fakeDesktop struct {
+	opened []string
+	height int
+}
+
+func (f *fakeDesktop) Open(route string)      { f.opened = append(f.opened, route) }
+func (f *fakeDesktop) Quit()                  {}
+func (f *fakeDesktop) ResizePanel(height int) { f.height = height }
+
+func TestDesktopActions(t *testing.T) {
+	s, h := newServer(t)
+	// In a browser the desktop actions do not exist.
+	if w := do(h, "POST", "/api/desktop/open", host, s.Token(), "", `{"route":"/versions"}`); w.Code != 404 {
+		t.Fatalf("browser: status %d", w.Code)
+	}
+	// Embedded in the app there is no token and no port; the Host is the
+	// webview's own.
+	d := &fakeDesktop{}
+	s.Embed(d)
+	h = s.Handler()
+	if w := do(h, "POST", "/api/desktop/open", "wails.localhost", "", "", `{"route":"/versions"}`); w.Code != 200 {
+		t.Fatalf("desktop: status %d: %s", w.Code, w.Body)
+	}
+	if w := do(h, "POST", "/api/desktop/open", "wails.localhost", "", "", `{"route":"javascript:x"}`); w.Code != 200 {
+		t.Fatalf("desktop: status %d", w.Code)
+	}
+	if len(d.opened) != 2 || d.opened[0] != "/versions" || d.opened[1] != "/" {
+		t.Fatalf("opened = %v", d.opened)
+	}
+	if w := do(h, "POST", "/api/desktop/resize", "wails.localhost", "", "", `{"height":420}`); w.Code != 200 || d.height != 420 {
+		t.Fatalf("resize: status %d, height %d", w.Code, d.height)
+	}
+	if w := do(h, "POST", "/api/desktop/resize", "wails.localhost", "", "", `{"height":99999}`); w.Code != 400 {
+		t.Fatalf("absurd resize accepted: %d", w.Code)
+	}
+	var meta map[string]any
+	json.Unmarshal(do(h, "GET", "/api/meta", "wails.localhost", "", "", "").Body.Bytes(), &meta)
+	if meta["desktop"] != true {
+		t.Fatalf("meta = %v", meta)
+	}
+}

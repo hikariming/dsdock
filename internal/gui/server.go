@@ -35,12 +35,22 @@ import (
 //go:embed assets
 var assets embed.FS
 
+// Desktop is what the native app does for the page: the menu bar panel
+// opens the main window and quits through it.
+type Desktop interface {
+	Open(route string)
+	Quit()
+	// ResizePanel fits the menu bar panel to its content's height.
+	ResizePanel(height int)
+}
+
 // Server is one running GUI.
 type Server struct {
 	core    *core.Core
 	token   string
 	version string
 	port    int
+	desktop Desktop
 
 	jobs  *jobs
 	plans sync.Map // id -> *pendingPlan
@@ -56,6 +66,11 @@ type pendingPlan struct {
 func New(c *core.Core, version string) *Server {
 	return &Server{core: c, token: randomHex(24), version: version, jobs: newJobs(c)}
 }
+
+// Embed serves the interface inside the desktop app. Its webview fetches
+// pages and API calls through the app itself, never over the network, so
+// there is no port to protect and the token, Host and Origin checks are off.
+func (s *Server) Embed(d Desktop) { s.desktop = d }
 
 // Token is the per-run secret API calls must send.
 func (s *Server) Token() string { return s.token }
@@ -121,6 +136,10 @@ func (s *Server) Handler() http.Handler {
 	api("POST /api/shim", s.installShim)
 	api("GET /api/market", s.market)
 	api("GET /api/jobs/{id}", s.job)
+	api("POST /api/desktop/{action}", s.desktopAction)
+	if s.desktop != nil {
+		return secureHeaders(mux)
+	}
 	return s.guard(mux)
 }
 
@@ -142,6 +161,12 @@ func (s *Server) guard(next http.Handler) http.Handler {
 				return
 			}
 		}
+		secureHeaders(next).ServeHTTP(w, r)
+	})
+}
+
+func secureHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'")

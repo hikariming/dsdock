@@ -29,6 +29,7 @@ const usage = `DSDock：DeepSeek Harness 的外部管理器
 用法：dsdock <命令> [参数] [选项]
 
 图形界面
+  app                        启动桌面版：菜单栏常驻图标 + 主窗口（DSDock.app 双击即是这个）
   gui                        在浏览器里打开 DSDock（--port <端口> 固定端口，--no-open 不自动打开）
 
 查看
@@ -169,6 +170,7 @@ func (ap *app) dispatch(ctx context.Context) error {
 		"log":      {ap.cmdLog, false},
 		"dsh":      {ap.cmdDSH, false},
 		"gui":      {ap.cmdGUI, false},
+		"app":      {ap.cmdApp, false},
 	}
 	h, ok := handlers[cmd]
 	if !ok {

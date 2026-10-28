@@ -9,20 +9,18 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<div class="shell">
-  <aside class="side">
-    <div class="brand"><img src="icon.svg" alt=""><span>DSDock</span></div>
-    <nav class="nav" id="nav">
-      <a href="#/" data-route="home">总览</a>
-      <a href="#/versions" data-route="versions">DSH 版本</a>
-      <a href="#/market" data-route="market">插件市场</a>
-    </nav>
-    <div class="side-title">Profile</div>
-    <nav class="nav profiles" id="profile-nav"></nav>
-    <div class="side-foot" id="side-foot"></div>
-  </aside>
-  <main class="main" id="main"><div class="loading">加载中…</div></main>
-</div>
+<header class="top" id="top">
+  <div class="brand"><img src="icon.svg" alt=""><span>DSDock</span></div>
+  <nav class="tabs-top" id="nav">
+    <a href="#/" data-route="home">Profile</a>
+    <a href="#/versions" data-route="versions">DSH 版本</a>
+    <a href="#/market" data-route="market">插件市场</a>
+  </nav>
+  <div class="top-actions">
+    <button class="icon-btn" id="refresh" title="刷新" aria-label="刷新"></button>
+  </div>
+</header>
+<main class="main" id="main"><div class="loading">加载中…</div></main>
 <div class="toasts" id="toasts"></div>
 <dialog id="dialog"></dialog>
 <script src="app.js"></script>

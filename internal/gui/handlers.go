@@ -24,7 +24,37 @@ import (
 func bg() context.Context { return context.Background() }
 
 func (s *Server) meta(w http.ResponseWriter, r *http.Request) (any, error) {
-	return map[string]any{"version": s.version, "home": s.core.Home, "dataDir": s.core.DataDir}, nil
+	return map[string]any{"version": s.version, "home": s.core.Home, "dataDir": s.core.DataDir, "desktop": s.desktop != nil}, nil
+}
+
+func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) (any, error) {
+	if s.desktop == nil {
+		return nil, &apiError{http.StatusNotFound, "只有桌面版可以这样做"}
+	}
+	var req struct {
+		Route  string
+		Height int
+	}
+	if err := decode(r, &req); err != nil {
+		return nil, err
+	}
+	switch r.PathValue("action") {
+	case "resize":
+		if req.Height < 120 || req.Height > 1200 {
+			return nil, badRequest("高度不合理")
+		}
+		s.desktop.ResizePanel(req.Height)
+	case "open":
+		if req.Route == "" || req.Route[0] != '/' {
+			req.Route = "/"
+		}
+		s.desktop.Open(req.Route)
+	case "quit":
+		s.desktop.Quit()
+	default:
+		return nil, badRequest("未知的操作")
+	}
+	return map[string]bool{"ok": true}, nil
 }
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) (any, error) {

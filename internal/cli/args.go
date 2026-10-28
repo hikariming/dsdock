@@ -14,7 +14,7 @@ type args struct {
 }
 
 var (
-	valueFlags = map[string]string{"--profile": "profile", "-p": "profile", "--registry": "registry", "--to": "to", "--limit": "limit", "--port": "port"}
+	valueFlags = map[string]string{"--profile": "profile", "-p": "profile", "--registry": "registry", "--to": "to", "--limit": "limit", "--port": "port", "--show": "show"}
 	boolFlags  = map[string]string{"--json": "json", "--yes": "yes", "-y": "yes", "--smoke": "smoke", "--pre": "pre", "--dry-run": "dry-run", "--force": "force", "--help": "help", "-h": "help", "--available": "available", "--no-boot": "no-boot", "--no-open": "no-open"}
 )
 

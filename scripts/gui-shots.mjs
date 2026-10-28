@@ -5,7 +5,7 @@
 //
 // CHROME points at a Chromium binary (chrome-headless-shell works). steps is
 // a list of {go}, {fill: [selector, value]}, {click: selector or text},
-// {wait: selector or ms}, {shot: name}. Needs Node >= 22 (global WebSocket).
+// {wait: selector or ms}, {viewport: [w, h]}, {shot: name}. Needs Node >= 22 (global WebSocket).
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -64,7 +64,10 @@ const finder = (q, any) => `(() => {
 
 try {
 for (const step of steps) {
-  if (step.go !== undefined) {
+  if (step.viewport) {
+    const [width, height] = step.viewport;
+    await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: step.scale || 1, mobile: false });
+  } else if (step.go !== undefined) {
     await send("Page.navigate", { url: `${base}#t=${token}&go=${encodeURIComponent(step.go)}` });
     await sleep(step.settle || 2500);
   } else if (step.fill) {

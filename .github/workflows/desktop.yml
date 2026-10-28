@@ -1,0 +1,95 @@
+name: desktop
+
+# Builds DSDock.app on macOS, runs it against a real DSH, and screenshots the
+# main window and the menu bar panel. The app and the screenshots are kept
+# as artifacts: there is no Mac in development, so this is how the native
+# interface gets looked at.
+on:
+  push:
+    branches: [main]
+    paths: ["internal/**", "main.go", "go.mod", "go.sum", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+jobs:
+  macos-app:
+    runs-on: macos-latest
+    env:
+      DSDOCK_HOME: ${{ github.workspace }}/.ci/dsdock
+      DSH_HOME: ${{ github.workspace }}/.ci/dsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install -g pnpm
+
+      - name: Build DSDock.app
+        run: |
+          set -euo pipefail
+          APP=dist/DSDock.app
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          CGO_ENABLED=1 go build -tags desktop -trimpath \
+            -ldflags "-s -w -X github.com/hikariming/dsdock/internal/cli.Version=desktop-${GITHUB_SHA::7}" \
+            -o "$APP/Contents/MacOS/dsdock-app" .
+          cat > "$APP/Contents/Info.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>DSDock</string>
+            <key>CFBundleDisplayName</key><string>DSDock</string>
+            <key>CFBundleIdentifier</key><string>com.hikariming.dsdock</string>
+            <key>CFBundleExecutable</key><string>dsdock-app</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>0.1.0</string>
+            <key>LSMinimumSystemVersion</key><string>12.0</string>
+            <key>LSUIElement</key><true/>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          EOF
+          sed -i '' 's/^          //' "$APP/Contents/Info.plist"
+          codesign --force --deep --sign - "$APP"
+          ditto -c -k --keepParent "$APP" dist/DSDock-macos-preview.zip
+          ls -la dist
+
+      - name: Prepare a DSH with two profiles
+        run: |
+          set -euo pipefail
+          BIN=dist/DSDock.app/Contents/MacOS/dsdock-app
+          $BIN dsh install latest
+          export DSDOCK_DSH_VERSION=$($BIN dsh list --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["default"])')
+          DSH="node $DSDOCK_HOME/versions/$DSDOCK_DSH_VERSION/node_modules/@deepseek-ai/dsh/lib/bin.js"
+          F=internal/cli/testdata/bundles
+          $DSH plugin --profile web add "$PWD/$F/fx-ok"
+          for b in fx-ok fx-conflict-a fx-conflict-b; do $DSH plugin --profile work add "$PWD/$F/$b"; done
+          $BIN status
+
+      - name: Screenshots
+        run: |
+          set -euo pipefail
+          mkdir -p shots
+          BIN=dist/DSDock.app/Contents/MacOS/dsdock-app
+          shoot() {
+            "$BIN" app --show "$1" > "shots/$1.log" 2>&1 &
+            pid=$!
+            sleep 12
+            screencapture -x "shots/$1.png" || echo "screencapture failed"
+            kill "$pid" || true
+            sleep 2
+            pkill -f '[d]sdock-app' || true
+          }
+          shoot main
+          shoot panel
+          ls -la shots
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-screenshots
+          path: shots/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DSDock-macos-preview
+          path: dist/DSDock-macos-preview.zip

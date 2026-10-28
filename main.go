@@ -21,6 +21,9 @@ func main() {
 		os.Exit(shim.Main(os.Args[1:]))
 	case len(os.Args) > 1 && os.Args[1] == "__shim":
 		os.Exit(shim.Main(os.Args[2:]))
+	case cli.HasDesktop && (len(os.Args) == 1 || strings.HasPrefix(os.Args[1], "-psn_")) && name == "dsdock-app":
+		// Opened as DSDock.app (Finder may add a -psn_ argument).
+		os.Exit(cli.Main([]string{"app"}))
 	}
 	os.Exit(cli.Main(os.Args[1:]))
 }
