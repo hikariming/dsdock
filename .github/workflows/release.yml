@@ -54,6 +54,22 @@ jobs:
           ./dist/dsdock dsh shim
           test -x "$DSDOCK_HOME/bin/dsh"
 
+      - name: Build DSDock.app
+        run: .github/release/build-app.sh "$TAG" dist
+
+      - name: Smoke the app
+        run: |
+          set -euo pipefail
+          APP=dist/DSDock.app/Contents/MacOS/dsdock-app
+          "$APP" version | grep -q "$TAG"
+          export DSDOCK_HOME="$RUNNER_TEMP/app-home" DSH_HOME="$RUNNER_TEMP/app-dsh"
+          "$APP" app --show panel > app.log 2>&1 &
+          pid=$!
+          sleep 10
+          kill -0 "$pid" || { echo "the app quit on its own"; cat app.log; exit 1; }
+          kill "$pid"
+          cat app.log
+
       - name: Package
         run: |
           set -euo pipefail
@@ -64,7 +80,11 @@ jobs:
             cp ../README.md ../LICENSE "pkg-$v/"
             tar -C "pkg-$v" -czf "dsdock-${TAG}-darwin-$v.tar.gz" dsdock README.md LICENSE
           done
-          shasum -a 256 dsdock-*.tar.gz | tee SHA256SUMS
+          # The app: a disk image to drag into Applications, and a zip.
+          mkdir -p dmg && cp -R DSDock.app dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname "DSDock" -srcfolder dmg -ov -format UDZO "DSDock-${TAG}-macos-universal.dmg"
+          ditto -c -k --keepParent DSDock.app "DSDock-${TAG}-macos-universal.zip"
+          shasum -a 256 dsdock-*.tar.gz DSDock-*.dmg DSDock-*.zip | tee SHA256SUMS
 
       - name: Publish
         env:
@@ -75,8 +95,8 @@ jobs:
           flags=()
           case "$TAG" in *-*) flags+=(--prerelease) ;; esac
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/dsdock-*.tar.gz dist/SHA256SUMS --clobber
+            gh release upload "$TAG" dist/dsdock-*.tar.gz dist/DSDock-*.dmg dist/DSDock-*.zip dist/SHA256SUMS --clobber
           else
-            gh release create "$TAG" dist/dsdock-*.tar.gz dist/SHA256SUMS \
+            gh release create "$TAG" dist/dsdock-*.tar.gz dist/DSDock-*.dmg dist/DSDock-*.zip dist/SHA256SUMS \
               --title "DSDock ${TAG}" --notes-file notes.md "${flags[@]}"
           fi

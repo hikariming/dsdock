@@ -29,30 +29,8 @@ jobs:
       - name: Build DSDock.app
         run: |
           set -euo pipefail
-          APP=dist/DSDock.app
-          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          CGO_ENABLED=1 go build -tags desktop -trimpath \
-            -ldflags "-s -w -X github.com/hikariming/dsdock/internal/cli.Version=desktop-${GITHUB_SHA::7}" \
-            -o "$APP/Contents/MacOS/dsdock-app" .
-          cat > "$APP/Contents/Info.plist" <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>CFBundleName</key><string>DSDock</string>
-            <key>CFBundleDisplayName</key><string>DSDock</string>
-            <key>CFBundleIdentifier</key><string>com.hikariming.dsdock</string>
-            <key>CFBundleExecutable</key><string>dsdock-app</string>
-            <key>CFBundlePackageType</key><string>APPL</string>
-            <key>CFBundleShortVersionString</key><string>0.1.0</string>
-            <key>LSMinimumSystemVersion</key><string>12.0</string>
-            <key>LSUIElement</key><true/>
-            <key>NSHighResolutionCapable</key><true/>
-          </dict></plist>
-          EOF
-          sed -i '' 's/^          //' "$APP/Contents/Info.plist"
-          codesign --force --deep --sign - "$APP"
-          ditto -c -k --keepParent "$APP" dist/DSDock-macos-preview.zip
-          ls -la dist
+          .github/release/build-app.sh "desktop-${GITHUB_SHA::7}" dist
+          ditto -c -k --keepParent dist/DSDock.app dist/DSDock-macos-preview.zip
 
       - name: Prepare a DSH with two profiles
         run: |
