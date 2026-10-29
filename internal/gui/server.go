@@ -32,6 +32,7 @@ import (
 
 	"github.com/hikariming/dsdock/internal/core"
 	"github.com/hikariming/dsdock/internal/launch"
+	"github.com/hikariming/dsdock/internal/usage"
 )
 
 //go:embed assets
@@ -60,6 +61,7 @@ type Server struct {
 	plans sync.Map // id -> *pendingPlan
 	quick quickHub
 	web   *launch.Web // DSH web started from the panel; stopped by Close
+	usage *usage.Scanner
 }
 
 type pendingPlan struct {
@@ -71,7 +73,8 @@ type pendingPlan struct {
 // New prepares a server. version is DSDock's own version, shown in the UI.
 func New(c *core.Core, version string) *Server {
 	return &Server{core: c, token: randomHex(24), version: version, jobs: newJobs(c),
-		web: &launch.Web{LogPath: filepath.Join(c.DataDir, "web", "web.log")}}
+		web:   &launch.Web{LogPath: filepath.Join(c.DataDir, "web", "web.log")},
+		usage: &usage.Scanner{Home: c.Home, CachePath: filepath.Join(c.DataDir, "usage", "cache.json")}}
 }
 
 // Close stops what the server started on its own: the DSH web instance and
@@ -163,6 +166,8 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/quick/{id}", s.quickGet)
 	api("POST /api/quick/{id}/answer", s.quickAnswer)
 	api("POST /api/quick/{id}/cancel", s.quickCancel)
+	api("GET /api/usage", s.usageReport)
+	api("GET /api/balance", s.balance)
 	api("GET /api/launch", s.launchInfo)
 	api("POST /api/launch/web", s.launchWeb)
 	api("POST /api/launch/app", s.launchApp)

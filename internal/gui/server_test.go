@@ -193,3 +193,16 @@ func TestLaunchInfo(t *testing.T) {
 		t.Fatalf("launching web without the token: status %d", w.Code)
 	}
 }
+
+func TestUsageAndBalanceOnEmptyHome(t *testing.T) {
+	s, h := newServer(t)
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	w := do(h, "GET", "/api/usage?days=30", host, s.Token(), "", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"top":[]`) || strings.Count(w.Body.String(), `"date"`) != 30 {
+		t.Fatalf("usage: status %d: %.300s", w.Code, w.Body)
+	}
+	w = do(h, "GET", "/api/balance", host, s.Token(), "", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"kind":"none"`) {
+		t.Fatalf("balance: status %d: %s", w.Code, w.Body)
+	}
+}

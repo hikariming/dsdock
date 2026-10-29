@@ -241,6 +241,16 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 - **桌面版**：按 K30 查找。macOS 先看 `/Applications`、`~/Applications`，找不到再用 Spotlight 按 bundle id 查；Windows 看 `%LOCALAPPDATA%\Programs` 和 `%ProgramFiles%`。找到就 `open -a` 启动，没装就提供下载链接（dshdesktop.cn）。
 - 已验证：真实 DSH 的集成测试（`internal/launch`，用打印的地址登录拿到 cookie、复用、停止）；Linux 上用假的 `xdg-open` 和 `dsh-desktop` 走通面板里的整个流程并截图。
 
+
+### F14 总览（第二版新增）
+
+主窗口第一个标签。回答三个问题：用了多少、还剩多少、DSH 和插件要不要动。
+
+- **用量**：读本机 `$DSH_HOME/sessions/*/*/session.v4.jsonl.zstd`，每个 `assistant/message` 记录带 `usage`（`inputTokens` 是未命中缓存的输入、`outputTokens`、`cacheReadTokens`、`cacheWriteTokens`、`totalTokens`）和 `source.model`。展示今天和近 30 天的 tokens、缓存命中率（命中 ÷ 全部输入，越高越省钱）、近一年按天的热力图、近 30 天的柱状图（缓存命中 / 未命中输入 / 输出）、按模型汇总、用得最多的 5 个会话。不上传任何数据；每个日志按大小和修改时间缓存汇总结果（`$DSDOCK_HOME/usage/cache.json`，带版本号，解析规则改了就重读）。正在写的日志末尾可能是半行，读到哪算到哪。
+- **余额**：API key 用户按 DSH 的顺序找 key（`.credentials.yaml` → 环境变量 → `$DSH_HOME/.env`），向 `https://api.deepseek.com/user/balance` 查询，key 只发给 DeepSeek，错误信息里不带 key。用 DeepSeek 账号登录的用户，钱包只有 DSH 的账号服务能读，卡片链接到 DSH Web。
+- **不估算金额**：DeepSeek 的价格会变，命中和未命中的单价也不同，只展示 tokens 和命中率。
+- **DSH 与插件**：当前版本和最新正式版（没装、已装未设默认分别提示"去升级""去切换"），每个 profile 的插件数和可更新的插件，点进去更新。
+
 ---
 
 ## 4. 技术架构

@@ -28,6 +28,7 @@ function h(tag, attrs, ...kids) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v === undefined || v === null || v === false) continue;
     if (k === "class") el.className = v;
+    else if (k === "style") Object.assign(el.style, v); // CSSOM: the CSP blocks style attributes
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else if (v === true) el.setAttribute(k, "");
     else el.setAttribute(k, v);
@@ -144,7 +145,7 @@ function markNav() {
   const cur = (location.hash.replace(/^#\/?/, "") || "home").split("?")[0];
   document.querySelectorAll("#nav a").forEach((a) => {
     const r = a.dataset.route;
-    a.classList.toggle("active", r === cur || (r === "home" && (cur.startsWith("p/") || cur.startsWith("rescue/"))));
+    a.classList.toggle("active", r === cur || (r === "profiles" && (cur.startsWith("p/") || cur.startsWith("rescue/"))));
   });
 }
 
@@ -314,30 +315,153 @@ function versionChips(onPick) {
 let rerender = () => route();
 
 // ---------- pages ----------
-// overview: the tiles on top of the home page, what the panel only summarises.
-function overview(st) {
+// ---------- dashboard ----------
+// Usage from this machine's session logs, the balance of the user's key,
+// and what DSH and its plugins need. Each block loads on its own.
+const fmtTokens = (n) => n >= 1e8 ? (n / 1e8).toFixed(n >= 1e9 ? 0 : 1) + " 亿" : n >= 1e4 ? (n / 1e4).toFixed(n >= 1e5 ? 0 : 1) + " 万" : String(n);
+const hitRate = (t) => { const all = t.input + t.cacheRead + t.cacheWrite; return all ? Math.round((t.cacheRead / all) * 100) + "%" : "—"; };
+const money = (cur, v) => (cur === "CNY" ? "¥" : cur === "USD" ? "$" : cur + " ") + Number(v || 0).toFixed(2);
+
+function kpi(label, value, sub, cls) {
+  return h("div", { class: "tile" + (cls ? " " + cls : "") }, h("div", { class: "tile-label" }, label), h("div", { class: "tile-value" }, value), sub ? h("div", { class: "tile-sub" }, sub) : null);
+}
+function block(title, id, extra) {
+  return h("div", { class: "card dash-card" }, h("div", { class: "dash-head" }, h("b", {}, title), extra || null), h("div", { id }, h("div", { class: "muted small" }, "加载中…")));
+}
+
+async function pageDashboard(main) {
+  const st = await refreshStatus();
+  refreshVersions().catch(() => {});
+  mount(main, h("div", { class: "dash" },
+    h("div", { class: "tiles", id: "kpi" }, kpi("今天", "…"), kpi("近 30 天", "…"), kpi("缓存命中率", "…"), kpi("余额", "…")),
+    block("用量", "heat", h("span", { class: "muted small", id: "heat-note" })),
+    h("div", { class: "dash-grid" }, block("近 30 天", "trend"), block("模型", "models")),
+    h("div", { class: "dash-grid" }, block("DSH 与插件", "dsh-box"), block("用得最多的对话", "dash-top", h("span", { class: "muted small" }, "近一年"))),
+    st.dsh.error ? null : h("div", { class: "tiles", id: "dash-launch" })));
+  renderLaunch();
+  loadLaunch();
+
+  api("/api/usage?days=365").then((u) => {
+    const k = $("#kpi");
+    if (!k) return;
+    k.children[0].replaceWith(kpi("今天 · tokens", fmtTokens(u.today.total), `${u.today.requests} 次请求`));
+    k.children[1].replaceWith(kpi("近 30 天 · tokens", fmtTokens(u.last30.total), `${u.last30.requests} 次请求`));
+    k.children[2].replaceWith(kpi("缓存命中率", hitRate(u.last30), "近 30 天，越高越省钱"));
+    mount($("#heat-note"), `近一年 ${fmtTokens(u.total.total)} tokens · ${u.sessions} 个会话`);
+    mount($("#heat"), heatmap(u.days));
+    const hm = $("#heat .hm");
+    if (hm) hm.scrollLeft = hm.scrollWidth; // narrow windows show the latest weeks
+    mount($("#trend"), trend(u.days.slice(-30)));
+    mount($("#models"), modelList(u.models));
+    mount($("#dash-top"), u.top.length ? u.top.map((s) => h("div", { class: "top-row" },
+      h("div", { class: "grow" }, h("div", { class: "top-title" }, s.title || "（没有标题）"),
+        h("div", { class: "muted small" }, [new Date(s.last).toLocaleDateString(), s.model, s.cwd].filter(Boolean).join(" · "))),
+      h("b", {}, fmtTokens(s.total)))) : h("div", { class: "muted small" }, "还没有对话"));
+  }).catch((e) => mount($("#heat"), h("div", { class: "banner bad" }, e.message)));
+
+  api("/api/balance").then((b) => {
+    const k = $("#kpi");
+    if (!k) return;
+    let t;
+    if (b.kind === "api-key" && !b.error) {
+      const main = b.infos[0] || {};
+      t = kpi("余额", money(main.currency, main.total), `充值 ${Number(main.toppedUp || 0).toFixed(2)} · 赠送 ${Number(main.granted || 0).toFixed(2)}`, b.available ? "" : "bad");
+    } else if (b.kind === "api-key") {
+      t = kpi("余额", "查不到", b.error, "warn");
+    } else if (b.kind === "account") {
+      t = h("button", { class: "tile tile-btn", onclick: openWeb }, h("div", { class: "tile-label" }, "余额"), h("div", { class: "tile-value small" }, "DeepSeek 账号"), h("div", { class: "tile-sub" }, "在 DSH Web 的账号设置里查看 ›"));
+    } else {
+      t = kpi("余额", "—", "没有找到 API key", "off");
+    }
+    if (b.kind === "api-key") t.title = `用${b.source}向 api.deepseek.com 查询；key 只发给 DeepSeek`;
+    k.children[3].replaceWith(t);
+  }).catch(() => {});
+
+  dshBox(st);
+}
+
+function heatmap(days) {
+  // columns are weeks starting on Monday, as on a calendar
+  const vals = days.map((d) => d.total).filter((v) => v > 0).sort((a, b) => a - b);
+  const q = (p) => vals.length ? vals[Math.min(vals.length - 1, Math.floor(p * vals.length))] : 0;
+  const cut = [q(0.25), q(0.5), q(0.75)];
+  const level = (v) => (!v ? 0 : v <= cut[0] ? 1 : v <= cut[1] ? 2 : v <= cut[2] ? 3 : 4);
+  const first = new Date(days[0].date + "T00:00:00");
+  const pad = (first.getDay() + 6) % 7;
+  const cells = [];
+  for (let i = 0; i < pad; i++) cells.push(h("span", { class: "hm-cell hm-pad" }));
+  for (const d of days) cells.push(h("span", { class: "hm-cell hm-" + level(d.total), title: `${d.date} · ${fmtTokens(d.total)} tokens · ${d.requests} 次请求` }));
+  const weeks = Math.ceil(cells.length / 7);
+  const months = [];
+  let last = -1;
+  for (let w = 0; w < weeks; w++) {
+    const i = w * 7 - pad;
+    const d = days[Math.max(0, i)];
+    const m = new Date(d.date + "T00:00:00").getMonth();
+    const next = days[Math.min(days.length - 1, Math.max(0, i + 7))];
+    const tooShort = w === 0 && new Date(next.date + "T00:00:00").getMonth() !== m; // one week of it: its label would run into the next
+    months.push(h("span", { class: "hm-month" }, m !== last && !tooShort ? `${m + 1}月` : ""));
+    last = m;
+  }
+  return h("div", { class: "hm" },
+    h("div", { class: "hm-months", style: { gridTemplateColumns: `repeat(${weeks}, var(--hm))` } }, months),
+    h("div", { class: "hm-body" },
+      h("div", { class: "hm-days" }, ["一", "", "三", "", "五", "", ""].map((t) => h("span", {}, t))),
+      h("div", { class: "hm-grid", style: { gridTemplateColumns: `repeat(${weeks}, var(--hm))` } }, cells)),
+    h("div", { class: "hm-legend" }, "少", [0, 1, 2, 3, 4].map((l) => h("span", { class: "hm-cell hm-" + l })), "多"));
+}
+
+function trend(days) {
+  const max = Math.max(1, ...days.map((d) => d.total));
+  return h("div", { class: "tr" },
+    h("div", { class: "tr-bars" }, days.map((d) => {
+      const pct = (v) => ({ height: `${(v / max) * 100}%` });
+      return h("div", { class: "tr-col", title: `${d.date} · ${fmtTokens(d.total)} tokens\n缓存命中 ${fmtTokens(d.cacheRead)}\n未命中输入 ${fmtTokens(d.input + d.cacheWrite)}\n输出 ${fmtTokens(d.output)}` },
+        h("span", { class: "tr-hit", style: pct(d.cacheRead) }),
+        h("span", { class: "tr-in", style: pct(d.input + d.cacheWrite) }),
+        h("span", { class: "tr-out", style: pct(d.output) }));
+    })),
+    h("div", { class: "tr-axis" }, h("span", {}, days[0].date.slice(5)), h("span", {}, "今天")),
+    h("div", { class: "tr-legend" }, h("span", { class: "sw tr-hit" }), "缓存命中", h("span", { class: "sw tr-in" }), "未命中输入", h("span", { class: "sw tr-out" }), "输出"));
+}
+
+function modelList(models) {
+  const rows = Object.entries(models).sort((a, b) => b[1].total - a[1].total);
+  if (!rows.length) return h("div", { class: "muted small" }, "还没有用量");
+  const max = rows[0][1].total || 1;
+  return rows.map(([name, t]) => h("div", { class: "md-row" },
+    h("div", { class: "md-name" }, name, h("span", { class: "muted small" }, ` · ${t.requests} 次 · 命中 ${hitRate(t)}`)),
+    h("div", { class: "md-bar" }, h("span", { style: { width: `${(t.total / max) * 100}%` } })),
+    h("b", {}, fmtTokens(t.total))));
+}
+
+async function dshBox(st) {
+  const box = $("#dsh-box");
+  if (!box) return;
   const own = st.profiles.filter((p) => !isQuiet(p));
-  const bad = own.filter((p) => health(p)[0] === "bad").length;
-  const warn = own.filter((p) => health(p)[0] === "warn").length;
-  const v = state.versions || {};
-  const tile = (label, value, href, cls) => h(href ? "a" : "div", { class: "tile" + (cls ? " " + cls : ""), href: href || undefined },
-    h("div", { class: "tile-label" }, label), h("div", { class: "tile-value" }, value));
-  const updates = h("div", { class: "tile-value", id: "dash-updates" }, "…");
-  const box = h("div", { class: "dash" },
-    h("div", { class: "tiles" },
-      tile("DSH 版本", st.dsh.error ? "未安装" : (v.default === "external" ? "外部 " : "") + (st.dsh.version || "?"), "#/versions", st.dsh.error ? "bad" : ""),
-      tile("Profile", bad ? `${bad} 个出错` : warn ? `${own.length - warn} 正常 · ${warn} 警告` : `${own.length} 个都正常`, null, bad ? "bad" : warn ? "warn" : ""),
-      h("div", { class: "tile" }, h("div", { class: "tile-label" }, "插件更新"), updates)),
-    st.dsh.error ? null : h("div", { class: "tiles", id: "dash-launch" }));
-  setTimeout(() => {
-    renderLaunch();
-    loadLaunch();
-    let total = 0;
-    Promise.all(own.map((p) => api("/api/outdated?profile=" + encodeURIComponent(p.name))
-      .then((list) => { total += (list || []).filter((u) => u.latest).length; }).catch(() => {})))
-      .then(() => { if ($("#dash-updates")) mount($("#dash-updates"), total ? `${total} 个可更新` : "都是最新"); });
-  });
-  return box;
+  const [avail, outs] = await Promise.all([
+    api("/api/versions/available").catch(() => []),
+    Promise.all(own.map((p) => api("/api/outdated?profile=" + encodeURIComponent(p.name)).then((l) => [p, (l || []).filter((u) => u.latest)]).catch(() => [p, []]))),
+  ]);
+  const latest = (avail || []).find((r) => (r.tags || []).includes("latest"));
+  const cur = st.dsh.version;
+  const newer = latest && cur && latest.version !== cur;
+  const have = newer && latest.installed;
+  mount(box,
+    h("div", { class: "dsh-row" },
+      h("div", { class: "grow" }, h("div", {}, h("b", {}, "DSH " + (cur || "未安装"))),
+        h("div", { class: "muted small" }, !latest ? "" : !newer ? "已是最新正式版" : have ? `最新正式版 ${latest.version} 已安装，还不是默认` : `有新的正式版 ${latest.version}`)),
+      newer ? h("a", { class: "btn small primary", href: "#/versions" }, have ? "去切换" : "去升级") : h("a", { class: "link", href: "#/versions" }, "版本 ›")),
+    own.map((p) => {
+      const [, ups] = outs.find(([q]) => q === p) || [p, []];
+      return h("div", { class: "dsh-row" },
+        avatar(p.name, true),
+        h("div", { class: "grow" },
+          h("div", {}, h("a", { href: "#/p/" + encodeURIComponent(p.name) }, p.name), h("span", { class: "muted small" }, ` · ${(p.plugins || []).length} 个插件`)),
+          ups.length ? h("div", { class: "muted small" }, ups.slice(0, 3).map((u) => `${u.name} ${u.current} → ${u.latest}`).join("，") + (ups.length > 3 ? ` 等 ${ups.length} 个` : "")) : h("div", { class: "muted small" }, health(p)[0] === "ok" ? "都是最新" : [h("span", { class: "dot " + health(p)[0] }), " ", health(p)[1]])),
+        ups.length ? h("a", { class: "btn small", href: "#/p/" + encodeURIComponent(p.name) }, `更新 ${ups.length}`) : null);
+    }),
+  );
 }
 
 async function pageHome(main) {
@@ -369,7 +493,7 @@ async function pageHome(main) {
     more.addEventListener("click", () => { more.replaceWith(...quiet.map(row)); });
     rows.push(more);
   }
-  mount(main, overview(st), lead, banners,
+  mount(main, lead, banners,
     h("div", { class: "card" }, st.profiles.length ? rows : h("div", { class: "empty" }, "还没有 profile。在终端里运行 dsh plugin --profile web add <插件> 会创建一个带 Web 界面的 profile。")),
     versionChips((name) => switchFlow({ kind: "use", name }, `把默认版本切换到 ${name}`).then(rerender)));
 }
@@ -396,7 +520,7 @@ async function pageProfile(main, name, tab) {
   const p = st.profiles.find((x) => x.name === name);
   if (!p) { mount(main, h("div", { class: "card empty" }, `profile ${name} 不存在`)); return; }
   const head = h("div", { class: "page-head" },
-    h("a", { class: "back", href: "#/" }, "‹ 全部"),
+    h("a", { class: "back", href: "#/profiles" }, "‹ 全部"),
     avatar(p.name, true), h("h1", {}, name),
     h("span", { class: "muted small status" }, statusLine(p)),
     h("span", { class: "spacer" }),
@@ -954,7 +1078,8 @@ async function route() {
   }
   if (path !== "panel") document.body.classList.remove("panel");
   try {
-    if (!path) await pageHome(main);
+    if (!path) await pageDashboard(main);
+    else if (path === "profiles") await pageHome(main);
     else if (path === "panel") await pagePanel(main);
     else if (path === "versions") await pageVersions(main);
     else if (path === "market") await pageMarket(main, params);

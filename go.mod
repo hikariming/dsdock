@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/gofrs/flock v0.13.1
+	github.com/klauspost/compress v1.18.3
 	github.com/mattn/go-isatty v0.0.24
 	github.com/wailsapp/wails/v3 v3.0.0-beta.24
 	gopkg.in/yaml.v3 v3.0.1

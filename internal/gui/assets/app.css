@@ -309,3 +309,51 @@ a.tile:hover, .tile-btn:hover:not(:disabled) { background: var(--field); cursor:
 .q-cmd { display: block; background: var(--card); border-radius: 8px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; }
 .q-wait { display: flex; align-items: center; gap: 6px; }
 .q-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
+
+/* ---------- dashboard ---------- */
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 10px; }
+.dash-card { padding: 16px 18px; min-width: 0; }
+.dash-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.dash-head b { font-size: 14.5px; }
+.tile-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.hm { --hm: 14px; display: flex; flex-direction: column; gap: 4px; overflow-x: auto; }
+.hm-months { display: grid; margin-left: 22px; gap: 3px; font-size: 11px; color: var(--muted); }
+.hm-month { white-space: nowrap; overflow: visible; }
+.hm-body { display: flex; gap: 6px; }
+.hm-days { display: grid; grid-template-rows: repeat(7, var(--hm)); gap: 3px; font-size: 10.5px; color: var(--muted); width: 16px; }
+.hm-days span { line-height: 1; display: flex; align-items: center; }
+.hm-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, var(--hm)); gap: 3px; }
+.hm-cell { display: inline-block; width: var(--hm); height: var(--hm); border-radius: 3px; background: var(--field); }
+.hm-pad { visibility: hidden; }
+.hm-1 { background: color-mix(in srgb, var(--accent) 25%, var(--field)); }
+.hm-2 { background: color-mix(in srgb, var(--accent) 50%, var(--field)); }
+.hm-3 { background: color-mix(in srgb, var(--accent) 75%, var(--field)); }
+.hm-4 { background: var(--accent); }
+.hm-legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.hm-legend .hm-cell { width: 10px; height: 10px; }
+.hm-months { width: max-content; }
+.hm { align-items: flex-start; }
+.hm-legend { align-self: stretch; }
+
+.tr-bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+.tr-col { flex: 1; height: 100%; display: flex; flex-direction: column-reverse; justify-content: flex-start; min-width: 3px; border-radius: 3px; overflow: hidden; }
+.tr-col:hover { background: var(--field); }
+.tr-hit { background: color-mix(in srgb, var(--accent) 22%, var(--field)); }
+.tr-in { background: color-mix(in srgb, var(--accent) 55%, var(--field)); }
+.tr-out { background: var(--accent); }
+.tr-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
+.tr-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.tr-legend .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-left: 6px; }
+
+.md-row { display: grid; grid-template-columns: 1fr 90px auto; align-items: center; gap: 10px; padding: 6px 0; }
+.md-name { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md-bar { height: 6px; border-radius: 3px; background: var(--field); overflow: hidden; }
+.md-bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+
+.top-row, .dsh-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.top-row:first-child, .dsh-row:first-child { border-top: 0; padding-top: 0; }
+.top-title { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top-row .grow, .dsh-row .grow { min-width: 0; }
+.dsh-row .muted.small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dsh-ok { padding-top: 6px; }
