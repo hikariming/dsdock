@@ -111,3 +111,9 @@
 **发生了什么**：快速提问的集成测试用 `DEEPSEEK_API_KEY` 环境变量提供 key，测试通过。用户在 Mac 上用的时候报 `MISSING_CREDENTIAL`（`deepseek-official` 路由没有 API key）。原因是用户在 DSH web 里选的模型（例如 DeepSeek 账号登录后的模型）只写进了那个 profile 的 `cordis.patch.yml`，headless profile 用的是它自己的默认模型。
 
 **规则**：测试要覆盖用户真实的配置方式：key 保存在 `$DSH_HOME/.credentials.yaml`、模型在网页里选过，而不只是测环境变量。借用别的 profile 运行时，先列出用户在原 profile 里做过的设置（模型、key、登录状态），逐项确认新 profile 能不能拿到。
+
+### 18. 照搬别人的窗口设置，输入法候选框被面板盖住
+
+**发生了什么**：菜单栏面板照搬了 Magpie 的设置：不激活应用的 NSPanel，层级是 floating（Wails 的 `AlwaysOnTop`）。Magpie 的面板里没有输入框，这套设置对它没问题。DSDock 的面板里有输入框，用户反馈打中文时候选框被盖住；把输入框挪到面板底部也没有解决。原因有两个：有的第三方输入法把候选框画在 floating 或更低的层级，会被面板盖住；面板不激活应用时，输入法的输入上下文可能不生效（Ghostty 的快捷终端遇到过同样的问题）。
+
+**规则**：有文字输入的面板要激活应用（`Show().Focus()`），层级用 normal，不要高于输入法。照搬别人的窗口设置前，先确认对方的使用场景（有没有输入框）和自己一样。开发机上测不了输入法，改完必须请用户在 Mac 上用中文输入法验证。

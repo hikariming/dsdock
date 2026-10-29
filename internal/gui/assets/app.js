@@ -314,6 +314,32 @@ function versionChips(onPick) {
 let rerender = () => route();
 
 // ---------- pages ----------
+// overview: the tiles on top of the home page, what the panel only summarises.
+function overview(st) {
+  const own = st.profiles.filter((p) => !isQuiet(p));
+  const bad = own.filter((p) => health(p)[0] === "bad").length;
+  const warn = own.filter((p) => health(p)[0] === "warn").length;
+  const v = state.versions || {};
+  const tile = (label, value, href, cls) => h(href ? "a" : "div", { class: "tile" + (cls ? " " + cls : ""), href: href || undefined },
+    h("div", { class: "tile-label" }, label), h("div", { class: "tile-value" }, value));
+  const updates = h("div", { class: "tile-value", id: "dash-updates" }, "…");
+  const box = h("div", { class: "dash" },
+    h("div", { class: "tiles" },
+      tile("DSH 版本", st.dsh.error ? "未安装" : (v.default === "external" ? "外部 " : "") + (st.dsh.version || "?"), "#/versions", st.dsh.error ? "bad" : ""),
+      tile("Profile", bad ? `${bad} 个出错` : warn ? `${own.length - warn} 正常 · ${warn} 警告` : `${own.length} 个都正常`, null, bad ? "bad" : warn ? "warn" : ""),
+      h("div", { class: "tile" }, h("div", { class: "tile-label" }, "插件更新"), updates)),
+    st.dsh.error ? null : h("div", { class: "tiles", id: "dash-launch" }));
+  setTimeout(() => {
+    renderLaunch();
+    loadLaunch();
+    let total = 0;
+    Promise.all(own.map((p) => api("/api/outdated?profile=" + encodeURIComponent(p.name))
+      .then((list) => { total += (list || []).filter((u) => u.latest).length; }).catch(() => {})))
+      .then(() => { if ($("#dash-updates")) mount($("#dash-updates"), total ? `${total} 个可更新` : "都是最新"); });
+  });
+  return box;
+}
+
 async function pageHome(main) {
   const [st] = await Promise.all([refreshStatus(), refreshVersions()]);
   const lead = st.dsh.error
@@ -343,7 +369,7 @@ async function pageHome(main) {
     more.addEventListener("click", () => { more.replaceWith(...quiet.map(row)); });
     rows.push(more);
   }
-  mount(main, lead, banners,
+  mount(main, overview(st), lead, banners,
     h("div", { class: "card" }, st.profiles.length ? rows : h("div", { class: "empty" }, "还没有 profile。在终端里运行 dsh plugin --profile web add <插件> 会创建一个带 Web 界面的 profile。")),
     versionChips((name) => switchFlow({ kind: "use", name }, `把默认版本切换到 ${name}`).then(rerender)));
 }
@@ -673,41 +699,47 @@ async function pageMarket(main, params) {
 // ---------- menu bar panel ----------
 async function pagePanel(main) {
   document.body.classList.add("panel");
-  const [st] = await Promise.all([refreshStatus(), refreshVersions()]);
+  const st = await refreshStatus();
   const open = (route) => (state.meta && state.meta.desktop ? desktop("open", { route }) : (location.hash = "#" + route));
-  const rows = st.profiles.filter((p) => !isQuiet(p)).map((p) => {
-    const bad = !p.healthy || health(p)[0] !== "ok";
-    return h("div", { class: "item" },
-      avatar(p.name, true),
-      h("div", { class: "body" },
-        h("div", { class: "title" }, h("a", { href: "#", onclick: (e) => { e.preventDefault(); open("/p/" + encodeURIComponent(p.name)); } }, p.name)),
-        h("div", { class: "sub" }, statusLine(p))),
-      h("div", { class: "side" },
-        bad ? h("button", { class: "btn small danger", onclick: () => open("/rescue/" + encodeURIComponent(p.name)) }, "救援") : null,
-        versionPicker(p, true)));
-  });
-  const ups = [];
+  const go = (route) => (e) => { e.preventDefault(); open(route); };
+  // One line instead of the profile list: the overview page has the details.
+  const own = st.profiles.filter((p) => !isQuiet(p));
+  const bad = own.filter((p) => !p.healthy || health(p)[0] === "bad");
+  const warn = own.filter((p) => p.healthy && health(p)[0] === "warn");
+  const dot = bad.length ? "bad" : warn.length ? "warn" : "ok";
+  const summary = st.dsh.error
+    ? h("a", { href: "#", class: "pn-status", onclick: go("/versions") }, h("span", { class: "dot bad" }), "还没有可用的 DSH，去安装 ›")
+    : h("a", { href: "#", class: "pn-status", title: "打开总览", onclick: go(bad.length === 1 ? "/rescue/" + encodeURIComponent(bad[0].name) : "/") },
+      h("span", { class: "dot " + dot }),
+      h("span", { class: "status-text" }, `DSH ${st.dsh.version || ""}`,
+        " · ", bad.length ? `${bad.map((p) => p.name).join("、")} 需要救援` : warn.length ? `${warn.length} 个 profile 有警告` : `${own.length} 个 profile 正常`,
+        h("span", { id: "pn-updates" }), " ›"));
   mount(main, h("div", { class: "pn" },
     h("div", { class: "pn-head" },
       h("div", { class: "brand" }, h("img", { src: "icon.svg", alt: "" }), h("span", {}, "DSDock")),
       h("span", { class: "spacer" }),
-      h("button", { class: "icon-btn", title: "刷新", onclick: () => route() }, icon("refresh")),
+      st.dsh.error ? null : h("span", { class: "pn-launch", id: "pn-launch" }),
       h("button", { class: "icon-btn", title: "打开 DSDock", onclick: () => open("/") }, icon("open")),
       state.meta && state.meta.desktop ? h("button", { class: "icon-btn", title: "退出 DSDock", onclick: () => desktop("quit") }, icon("power")) : null),
-    h("div", { class: "card" }, rows.length ? rows : h("div", { class: "empty" }, "还没有 profile")),
-    versionChips((name) => switchFlow({ kind: "use", name }, `把默认版本切换到 ${name}`).then(rerender)),
-    h("div", { class: "pn-note muted", id: "pn-updates" }, ups),
-    st.dsh.error ? h("div", { class: "banner info pn-bottom" }, "还没有可用的 DSH。") : [launchRow(), quickBox()]));
-
+    summary,
+    st.dsh.error ? null : quickBox()));
+  renderLaunch();
+  loadLaunch();
   fitPanel();
   resumeQuick();
+  focusAsk();
   // updates are a network round per plugin: count them after the panel shows
   let total = 0;
-  await Promise.all(st.profiles.map((p) => api("/api/outdated?profile=" + encodeURIComponent(p.name))
+  await Promise.all(own.map((p) => api("/api/outdated?profile=" + encodeURIComponent(p.name))
     .then((list) => { total += (list || []).filter((u) => u.latest).length; }).catch(() => {})));
-  if (total) mount($("#pn-updates"), h("a", { href: "#", onclick: (e) => { e.preventDefault(); open("/"); } }, `${total} 个插件有更新 ›`));
-  fitPanel();
+  if (total && $("#pn-updates")) mount($("#pn-updates"), ` · ${total} 个更新`);
 }
+// The panel is for typing: put the caret in the box whenever it shows.
+function focusAsk() {
+  const ta = $("#quick textarea");
+  if (ta && !ta.disabled) ta.focus();
+}
+window.addEventListener("focus", () => { if (document.body.classList.contains("panel")) focusAsk(); });
 
 // ---------- quick prompt ----------
 // One sentence to DSH from the panel. DSDock runs it in headless mode; DSH
@@ -733,13 +765,11 @@ function describeCall(ev) {
   }
 }
 
-// ---------- launching DSH's own interfaces from the panel ----------
+// ---------- launching DSH's own interfaces ----------
+// The panel shows them as header icons, the overview page as tiles.
 const launchState = { info: null, webBusy: false };
-function launchRow() {
-  const row = h("div", { class: "pn-launch", id: "pn-launch" });
-  renderLaunch(row);
+function loadLaunch() {
   api("/api/launch").then((info) => { launchState.info = info; renderLaunch(); fitPanel(); }).catch(() => {});
-  return row;
 }
 async function openWeb() {
   if (launchState.webBusy) return;
@@ -752,20 +782,25 @@ async function openWeb() {
   launchState.webBusy = false;
   renderLaunch(); renderQuick();
 }
-function launchButton(ic, name, sub, onclick, disabled) {
-  return h("button", { class: "launch", onclick, disabled }, icon(ic), h("span", { class: "launch-text" }, h("b", {}, name), h("small", {}, sub)));
-}
-function renderLaunch(row) {
-  row = row || $("#pn-launch");
-  if (!row) return;
+const openApp = (id) => api("/api/launch/app", { id }).catch((e) => toast(e.message, true));
+// launchTargets: what can be opened, in display order.
+function launchTargets() {
   const info = launchState.info;
-  const web = launchButton("globe", "DSH Web",
-    launchState.webBusy ? "启动中…" : info && info.webRunning ? "已在运行 · 打开" : "在浏览器里打开", openWeb, launchState.webBusy);
-  const openApp = (id) => api("/api/launch/app", { id }).catch((e) => toast(e.message, true));
+  const web = { ic: "globe", name: "DSH Web", run: openWeb, busy: launchState.webBusy, on: !!(info && info.webRunning),
+    sub: launchState.webBusy ? "启动中…" : info && info.webRunning ? "已在运行 · 打开" : "在浏览器里打开" };
   const apps = info && info.apps.length
-    ? info.apps.map((a) => launchButton("desktop", a.name, "打开桌面版", () => openApp(a.id)))
-    : [launchButton("desktop", "DSH Desktop", info ? "没有安装 · 去下载" : "…", () => openApp("download"), !info)];
-  mount(row, web, apps);
+    ? info.apps.map((a) => ({ ic: "desktop", name: a.name, run: () => openApp(a.id), sub: "打开桌面版" }))
+    : [{ ic: "desktop", name: "DSH Desktop", run: () => openApp("download"), off: true, sub: info ? "没有安装 · 去下载" : "…" }];
+  return [web, ...apps];
+}
+function renderLaunch() {
+  const icons = $("#pn-launch");
+  if (icons) mount(icons, launchTargets().map((t) => h("button", {
+    class: "icon-btn launch-icon" + (t.on ? " on" : "") + (t.busy ? " busy" : "") + (t.off ? " off" : ""),
+    title: `${t.name}：${t.sub}`, disabled: t.busy, onclick: t.run }, icon(t.ic))));
+  const tiles = $("#dash-launch");
+  if (tiles) mount(tiles, launchTargets().map((t) => h("button", { class: "tile tile-btn" + (t.off ? " off" : ""), disabled: t.busy, onclick: t.run },
+    h("div", { class: "tile-label" }, icon(t.ic), t.name), h("div", { class: "tile-value small" }, t.on ? h("span", { class: "dot run" }) : null, t.sub))));
 }
 
 function quickBox() {

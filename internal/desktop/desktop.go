@@ -72,7 +72,7 @@ func (h *host) Attention() {
 	application.InvokeSync(func() {
 		if !h.panel.IsVisible() {
 			_ = h.tray.PositionWindow(h.panel, panelOffset)
-			h.panel.Show()
+			h.panel.Show().Focus()
 		}
 	})
 }
@@ -101,7 +101,6 @@ func Run(c *core.Core, opt Options) error {
 		Height:          300,
 		Hidden:          true,
 		Frameless:       true,
-		AlwaysOnTop:     true,
 		DisableResize:   true,
 		HideOnEscape:    true,
 		HideOnFocusLost: true,
@@ -109,13 +108,16 @@ func Run(c *core.Core, opt Options) error {
 		Mac: application.MacWindow{
 			Backdrop:     application.MacBackdropTranslucent,
 			CornerRadius: 12,
-			// On every Space, over full-screen apps too, and shown without
-			// activating DSDock, as a menu bar extra's panel is (the same
-			// settings Magpie arrived at; see its #2141).
+			// On every Space, over full-screen apps too.
 			CollectionBehavior: application.MacWindowCollectionBehaviorCanJoinAllSpaces |
 				application.MacWindowCollectionBehaviorFullScreenAuxiliary,
-			WindowClass:      application.MacWindowClassPanel,
-			PanelPreferences: application.MacPanelPreferences{NonActivating: true},
+			WindowClass: application.MacWindowClassPanel,
+			// Opening the panel activates DSDock, and the panel sits at the
+			// normal level. Magpie's settings (non-activating, floating) hid
+			// the candidate window of input methods that draw it at the
+			// floating level or below, and a panel that never activates can
+			// leave the input context inactive (LESSONS 18).
+			WindowLevel: application.MacWindowLevelNormal,
 		},
 		Windows: application.WindowsWindow{HiddenOnTaskbar: true},
 	})
@@ -164,7 +166,7 @@ func Run(c *core.Core, opt Options) error {
 					h.main.Focus()
 				case "panel":
 					_ = h.tray.PositionWindow(h.panel, panelOffset)
-					h.panel.Show()
+					h.panel.Show().Focus()
 				}
 			})
 		})

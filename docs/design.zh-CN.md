@@ -265,7 +265,7 @@ DSH 自己已经有插件页（"已安装"和"发现"两个标签，带更新和
 
 安全：只监听 127.0.0.1；每次运行生成随机令牌，放在 URL 的 `#` 片段里交给页面（不会进入请求和日志）；所有 API 校验令牌、Host（防 DNS 重绑定）和写请求的 Origin；CSP 禁止内联脚本和样式，第三方内容（市场里的描述）一律用 `textContent` 渲染。
 
-**桌面版（第二版实际做法）**：`internal/desktop`（`-tags desktop`，Wails v3.0.0-beta.24，与 Magpie 同版本）。菜单栏模板图标（`scripts/trayicon` 生成）、点击弹出的非激活面板（`#/panel`，按内容调整高度）、隐藏标题栏的主窗口，`ActivationPolicyAccessory` 不占 Dock。页面由 Wails 资源处理器在进程内提供（`gui.Server.Embed`），不开端口，所以桌面模式下没有令牌和 Host 检查。普通构建不含 Wails，保持纯 Go。开发机没有 Mac：`desktop.yml` 在 GitHub 的 macOS 机器上编译 `.app`、装真实 DSH、启动后用 `screencapture` 截屏，截图作为产物下载查看。
+**桌面版（第二版实际做法）**：`internal/desktop`（`-tags desktop`，Wails v3.0.0-beta.24，与 Magpie 同版本）。菜单栏模板图标（`scripts/trayicon` 生成）、点击弹出的面板（`#/panel`，按内容调整高度；打开时激活应用、层级为 normal，否则输入法候选框会被盖住，见 LESSONS 18。面板只放一行状态、打开 DSH Web / 桌面版的图标和快速提问，详细信息在主窗口首页的总览卡片里）、隐藏标题栏的主窗口，`ActivationPolicyAccessory` 不占 Dock。页面由 Wails 资源处理器在进程内提供（`gui.Server.Embed`），不开端口，所以桌面模式下没有令牌和 Host 检查。普通构建不含 Wails，保持纯 Go。开发机没有 Mac：`desktop.yml` 在 GitHub 的 macOS 机器上编译 `.app`、装真实 DSH、启动后用 `screencapture` 截屏，截图作为产物下载查看。
 
 ### 4.2 进程模式
 
